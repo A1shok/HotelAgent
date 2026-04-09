@@ -27,6 +27,20 @@ def decide(db, room, ai):
         Task.status != "cancelled"
     ).all()
 
+    # New Logic
+    if ai["intent"] == "greeting":
+        return "greeting", None
+
+    if ai["intent"] == "info_request":
+        return "info", None
+
+    if ai["intent"] == "completion":
+        if tasks:
+            task = tasks[0]
+            task.status = "closed"
+            db.commit()
+            return "closed", task
+
     # TASK
     if ai["intent"] == "task":
         for t in tasks:
