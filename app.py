@@ -1,7 +1,12 @@
+from fastapi import FastAPI, Request
+from fastapi.responses import Response
+from twilio.twiml.messaging_response import MessagingResponse
+
+app = FastAPI()
+
+
 @app.post("/webhook")
 async def whatsapp_webhook(request: Request):
-    from twilio.twiml.messaging_response import MessagingResponse
-    from fastapi.responses import Response
 
     resp = MessagingResponse()
 
