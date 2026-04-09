@@ -2,22 +2,15 @@ from fastapi.responses import Response
 from twilio.twiml.messaging_response import MessagingResponse
 from fastapi import FastAPI, Request
 from db import SessionLocal, Task
-from ai import parse_message
-from response_engine import reply
+from ai import parse_message, generate_response
 from datetime import datetime
 import uuid
 
 app = FastAPI()
 
 
-def twilio_reply(message):
-    resp = MessagingResponse()
-    resp.message(message)
-    return Response(content=str(resp), media_type="application/xml")
-
-
 # -------------------------
-# CONTROL ENGINE
+# CONTROL ENGINE (unchanged)
 # -------------------------
 def decide(db, room, ai):
 
@@ -27,7 +20,6 @@ def decide(db, room, ai):
         Task.status != "cancelled"
     ).all()
 
-    # New Logic
     if ai["intent"] == "greeting":
         return "greeting", None
 
@@ -41,7 +33,6 @@ def decide(db, room, ai):
             db.commit()
             return "closed", task
 
-    # TASK
     if ai["intent"] == "task":
         for t in tasks:
             if t.category == ai["category"]:
@@ -51,7 +42,6 @@ def decide(db, room, ai):
 
         return "create", None
 
-    # COMPLETION
     if ai["intent"] == "completion":
         if len(tasks) == 1:
             task = tasks[0]
@@ -68,7 +58,6 @@ def decide(db, room, ai):
 
             return "ambiguous", None
 
-    # NOT RECEIVED
     if ai["intent"] == "not_received":
         for t in tasks:
             if t.status == "completed_unverified":
@@ -77,7 +66,6 @@ def decide(db, room, ai):
                 db.commit()
                 return "escalation", t
 
-    # CANCEL
     if ai["intent"] == "cancel":
         if tasks:
             task = tasks[0]
@@ -94,15 +82,12 @@ def decide(db, room, ai):
 @app.post("/webhook")
 async def whatsapp_webhook(req: Request):
 
-    from twilio.twiml.messaging_response import MessagingResponse
-
     resp = MessagingResponse()
 
     try:
         print("STEP 1: message received")
 
         form = await req.form()
-
         msg = form.get("Body")
         phone = form.get("From")
 
@@ -120,36 +105,24 @@ async def whatsapp_webhook(req: Request):
         action, task = decide(db, phone[-3:], ai)
         print("STEP 4 DONE:", action)
 
-        reply_text = "Working on it 👍"
+        # -------------------------
+        # AI RESPONSE (NEW)
+        # -------------------------
+        action_summary = []
 
-        if action == "create":
-            reply_text = reply("task_created", {"task": ai["category"]})
-            
-        elif action == "greeting":
-            reply_text = "Hi 👋 how can I help you?"
+        if task:
+            action_summary.append({
+                "action": action,
+                "category": task.category
+            })
+        else:
+            action_summary.append({
+                "action": action
+            })
 
-        elif action == "info":
-            reply_text = "Breakfast is from 7–10 AM 🍽️"
+        final_reply = generate_response(action_summary)
 
-        elif action == "closed":
-            reply_text = "Glad it's sorted 👍"
-
-        elif action == "duplicate":
-            reply_text = reply("duplicate", {"task": task.category})
-
-        elif action == "completed":
-            reply_text = reply("completed", {"task": task.category})
-
-        elif action == "escalation":
-            reply_text = reply("escalation", {"task": task.category})
-
-        elif action == "cancelled":
-            reply_text = reply("cancelled", {"task": task.category})
-
-        elif action == "ambiguous":
-            reply_text = "Multiple requests active. Which one?"
-
-        resp.message(reply_text)
+        resp.message(final_reply)
 
     except Exception as e:
         print("❌ ERROR:", str(e))
