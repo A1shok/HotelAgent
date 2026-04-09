@@ -15,6 +15,13 @@ Rules:
 
 Event: {event}
 Data: {data}
+
+Examples:
+task_created → "Got it 👍 sending towels in 10 minutes"
+duplicate → "Already working on it 👍"
+completed → "Just checking 👍 have you received it?"
+escalation → "Sorry 🙏 fixing this right away"
+cancelled → "Done 👍 request cancelled"
 """
 
     res = client.chat.completions.create(
