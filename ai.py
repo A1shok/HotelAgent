@@ -8,10 +8,11 @@ def parse_message(msg):
     prompt = f"""
 Classify hotel guest/staff message.
 
-Return STRICT JSON:
+Return JSON:
 {{
- "intent": "task|cancel|completion|not_received|unknown",
- "category": "ac|towels|water|other",
+ "intent": "task|cancel|completion|not_received|greeting|info_request",
+ "category": "ac|towels|water|food|other",
+ "urgency": "low|normal|high",
  "confidence": 0.0
 }}
 
