@@ -95,7 +95,7 @@ async def whatsapp_webhook(req: Request):
         print("📩 Message:", msg)
 
         print("STEP 2: AI parsing start")
-        ai = {"intent": "task", "category": "towels"}
+        ai = parse_message(msg)
         print("STEP 2 DONE:", ai)
 
         print("STEP 3: DB connecting")
