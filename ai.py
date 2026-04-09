@@ -33,13 +33,25 @@ def generate_response(actions):
     prompt = f"""
 You are a hotel WhatsApp concierge.
 
-Convert system actions into a natural, polite WhatsApp reply.
+You MUST convert system actions into a natural reply.
 
-Rules:
-- 1–2 short lines max
-- Friendly, professional tone
-- No technical words
-- Combine multiple actions into one reply
+STRICT RULES:
+- Be specific to the action (DO NOT use generic replies)
+- 1 short sentence only
+- No repetition
+- No greetings unless action is greeting
+- No "All set" or vague phrases
+- Mention task clearly
+
+Action meanings:
+- created → confirm request is being handled
+- duplicate → say already working on it
+- cancelled → confirm cancellation
+- closed → acknowledge completion
+- escalation → apologize and say urgent handling
+- ambiguous → ask which request
+- info → answer directly
+- greeting → greet
 
 Actions:
 {actions}
@@ -51,5 +63,4 @@ Actions:
     )
 
     return res.choices[0].message.content.strip()
-
 
