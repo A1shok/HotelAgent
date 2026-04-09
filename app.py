@@ -80,58 +80,56 @@ def decide(db, room, ai):
 @app.post("/webhook")
 async def whatsapp_webhook(req: Request):
 
-    form = await req.form()
+    from twilio.twiml.messaging_response import MessagingResponse
 
-    msg = form.get("Body")
-    phone = form.get("From")
+    resp = MessagingResponse()
 
-    print("📩", msg)
+    try:
+        print("STEP 1: message received")
 
-    room = phone[-3:]
+        form = await req.form()
 
-    ai = parse_message(msg)
+        msg = form.get("Body")
+        phone = form.get("From")
 
-    db = SessionLocal()
+        print("📩 Message:", msg)
 
-    action, task = decide(db, room, ai)
+        print("STEP 2: AI parsing start")
+        ai = parse_message(msg)
+        print("STEP 2 DONE:", ai)
 
-    # -------------------------
-    # CREATE TASK
-    # -------------------------
-    if action == "create":
+        print("STEP 3: DB connecting")
+        db = SessionLocal()
+        print("STEP 3 DONE")
 
-        new_task = Task(
-            id=str(uuid.uuid4()),
-            room=room,
-            category=ai["category"],
-            status="created",
-            priority="urgent" if ai["category"] == "ac" else "normal",
-            escalation_level=0,
-            quantity=1,
-            created_at=datetime.now()
-        )
+        print("STEP 4: decision start")
+        action, task = decide(db, phone[-3:], ai)
+        print("STEP 4 DONE:", action)
 
-        db.add(new_task)
-        db.commit()
+        reply_text = "Working on it 👍"
 
-        reply_text = reply("task_created", {"task": ai["category"], "eta": "10 minutes"})
+        if action == "create":
+            reply_text = reply("task_created", {"task": ai["category"]})
 
-    elif action == "duplicate":
-        reply_text = reply("duplicate", {"task": task.category})
+        elif action == "duplicate":
+            reply_text = reply("duplicate", {"task": task.category})
 
-    elif action == "completed":
-        reply_text = reply("completed", {"task": task.category})
+        elif action == "completed":
+            reply_text = reply("completed", {"task": task.category})
 
-    elif action == "escalation":
-        reply_text = reply("escalation", {"task": task.category})
+        elif action == "escalation":
+            reply_text = reply("escalation", {"task": task.category})
 
-    elif action == "cancelled":
-        reply_text = reply("cancelled", {"task": task.category})
+        elif action == "cancelled":
+            reply_text = reply("cancelled", {"task": task.category})
 
-    elif action == "ambiguous":
-        reply_text = "Multiple requests active. Which one is completed?"
+        elif action == "ambiguous":
+            reply_text = "Multiple requests active. Which one?"
 
-    else:
-        reply_text = reply("default", {})
+        resp.message(reply_text)
 
-    return twilio_reply(reply_text)
+    except Exception as e:
+        print("❌ ERROR:", str(e))
+        resp.message("Got it 👍 working on your request")
+
+    return Response(content=str(resp), media_type="application/xml")
