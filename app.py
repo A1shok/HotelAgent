@@ -124,6 +124,15 @@ async def whatsapp_webhook(req: Request):
 
         if action == "create":
             reply_text = reply("task_created", {"task": ai["category"]})
+            
+        elif action == "greeting":
+            reply_text = "Hi 👋 how can I help you?"
+
+        elif action == "info":
+            reply_text = "Breakfast is from 7–10 AM 🍽️"
+
+        elif action == "closed":
+            reply_text = "Glad it's sorted 👍"
 
         elif action == "duplicate":
             reply_text = reply("duplicate", {"task": task.category})
