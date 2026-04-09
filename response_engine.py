@@ -22,6 +22,10 @@ duplicate → "Already working on it 👍"
 completed → "Just checking 👍 have you received it?"
 escalation → "Sorry 🙏 fixing this right away"
 cancelled → "Done 👍 request cancelled"
+greeting → "Hi 👋 how can I help you?"
+info → "Breakfast is from 7–10 AM 🍽️"
+closed → "Glad it's sorted 👍"
+urgent → "On priority 🚨 sending someone immediately"
 """
 
     res = client.chat.completions.create(
