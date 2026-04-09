@@ -28,3 +28,28 @@ Message: "{msg}"
         return json.loads(res.choices[0].message.content)
     except:
         return {"intent": "unknown", "category": "other"}
+
+def generate_response(actions):
+    prompt = f"""
+You are a hotel WhatsApp concierge.
+
+Convert system actions into a natural, polite WhatsApp reply.
+
+Rules:
+- 1–2 short lines max
+- Friendly, professional tone
+- No technical words
+- Combine multiple actions into one reply
+
+Actions:
+{actions}
+"""
+
+    res = client.chat.completions.create(
+        model="gpt-5-mini",
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    return res.choices[0].message.content.strip()
+
+
