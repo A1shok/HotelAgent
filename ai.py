@@ -6,11 +6,11 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def parse_message(msg):
     prompt = f"""
-Classify hotel guest message.
+Classify hotel guest/staff message.
 
-Return JSON:
+Return STRICT JSON:
 {{
- "intent": "task|cancel|followup|completion|not_received",
+ "intent": "task|cancel|completion|not_received|unknown",
  "category": "ac|towels|water|other",
  "confidence": 0.0
 }}
