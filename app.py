@@ -64,7 +64,7 @@ def decide(db, room, ai):
 
         task.status = "completed_unverified"
         db.commit()
-        return "completed", task
+        return "closed", task
 
     # -------------------------
     # NOT RECEIVED
