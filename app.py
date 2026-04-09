@@ -20,21 +20,21 @@ def decide(db, room, ai):
         Task.status != "cancelled"
     ).all()
 
+    # -------------------------
+    # GREETING
+    # -------------------------
     if ai["intent"] == "greeting":
         return "greeting", None
 
+    # -------------------------
+    # INFO
+    # -------------------------
     if ai["intent"] == "info_request":
         return "info", None
 
-   if ai["intent"] == "completion":
-      if tasks:
-        # pick MOST RECENT task
-        task = sorted(tasks, key=lambda x: x.created_at, reverse=True)[0]
-    
-        task.status = "closed"
-        db.commit()
-        return "closed", task
-
+    # -------------------------
+    # TASK
+    # -------------------------
     if ai["intent"] == "task":
         for t in tasks:
             if t.category == ai["category"]:
@@ -44,25 +44,31 @@ def decide(db, room, ai):
 
         return "create", None
 
+    # -------------------------
+    # COMPLETION (FIXED)
+    # -------------------------
     if ai["intent"] == "completion":
 
         if not tasks:
             return "default", None
-    
-        # if category is mentioned → use it
+
+        # if category mentioned → use it
         for t in tasks:
             if t.category == ai.get("category"):
                 t.status = "completed_unverified"
                 db.commit()
                 return "completed", t
-    
-        # else → pick most recent task
+
+        # else → pick MOST RECENT task
         task = sorted(tasks, key=lambda x: x.created_at, reverse=True)[0]
-    
+
         task.status = "completed_unverified"
         db.commit()
         return "completed", task
 
+    # -------------------------
+    # NOT RECEIVED
+    # -------------------------
     if ai["intent"] == "not_received":
         for t in tasks:
             if t.status == "completed_unverified":
@@ -71,12 +77,27 @@ def decide(db, room, ai):
                 db.commit()
                 return "escalation", t
 
+    # -------------------------
+    # CANCEL (FIXED)
+    # -------------------------
     if ai["intent"] == "cancel":
-        if tasks:
-            task = tasks[0]
-            task.status = "cancelled"
-            db.commit()
-            return "cancelled", task
+
+        if not tasks:
+            return "default", None
+
+        # if category mentioned → use it
+        for t in tasks:
+            if t.category == ai.get("category"):
+                t.status = "cancelled"
+                db.commit()
+                return "cancelled", t
+
+        # else → pick MOST RECENT
+        task = sorted(tasks, key=lambda x: x.created_at, reverse=True)[0]
+
+        task.status = "cancelled"
+        db.commit()
+        return "cancelled", task
 
     return "default", None
 
