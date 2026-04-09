@@ -26,12 +26,14 @@ def decide(db, room, ai):
     if ai["intent"] == "info_request":
         return "info", None
 
-    if ai["intent"] == "completion":
-        if tasks:
-            task = tasks[0]
-            task.status = "closed"
-            db.commit()
-            return "closed", task
+   if ai["intent"] == "completion":
+      if tasks:
+        # pick MOST RECENT task
+        task = sorted(tasks, key=lambda x: x.created_at, reverse=True)[0]
+    
+        task.status = "closed"
+        db.commit()
+        return "closed", task
 
     if ai["intent"] == "task":
         for t in tasks:
@@ -43,20 +45,23 @@ def decide(db, room, ai):
         return "create", None
 
     if ai["intent"] == "completion":
-        if len(tasks) == 1:
-            task = tasks[0]
-            task.status = "completed_unverified"
-            db.commit()
-            return "completed", task
 
-        if len(tasks) > 1:
-            for t in tasks:
-                if t.category == ai["category"]:
-                    t.status = "completed_unverified"
-                    db.commit()
-                    return "completed", t
-
-            return "ambiguous", None
+        if not tasks:
+            return "default", None
+    
+        # if category is mentioned → use it
+        for t in tasks:
+            if t.category == ai.get("category"):
+                t.status = "completed_unverified"
+                db.commit()
+                return "completed", t
+    
+        # else → pick most recent task
+        task = sorted(tasks, key=lambda x: x.created_at, reverse=True)[0]
+    
+        task.status = "completed_unverified"
+        db.commit()
+        return "completed", task
 
     if ai["intent"] == "not_received":
         for t in tasks:
