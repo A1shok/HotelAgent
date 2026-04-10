@@ -94,6 +94,27 @@ def validate(decision):
         return {"action": "ask_clarification"}
 
     return decision
+# -----------------------
+# DECISION → ACTIONS (ADD HERE)
+# -----------------------
+def decision_to_actions(decision):
+
+    action_map = {
+        "create_task": "created",
+        "mark_complete": "completed",
+        "cancel_task": "cancelled",
+        "ask_clarification": "ambiguous",
+        "followup_status": "escalation",
+        "ignore": "ignore"
+    }
+
+    action = decision.get("action")
+    mapped = action_map.get(action, "unknown")
+
+    if decision.get("category"):
+        return [{"action": mapped, "category": decision.get("category")}]
+
+    return [{"action": mapped}]
 
 
 # -----------------------
