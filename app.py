@@ -74,7 +74,6 @@ OUTPUT JSON ONLY:
         return json.loads(res.choices[0].message.content)
     except:
         return {"action": "ask_clarification"}
-        
 
 
 # -----------------------
@@ -95,9 +94,12 @@ def validate(decision):
         return {"action": "ask_clarification"}
 
     return decision
+
+
 # -----------------------
-# DECISION → ACTIONS (ADD HERE)
+# DECISION → ACTIONS
 # -----------------------
+
 def decision_to_actions(decision):
 
     action_map = {
@@ -126,23 +128,18 @@ def execute(decision, db, room):
 
     action = decision.get("action")
     category = decision.get("category")
-    task_id = decision.get("task_id")
 
-    # get active tasks
     active_tasks = db.query(Task).filter(
         Task.room == room,
         Task.status == "active"
     ).all()
 
-    # -------------------
-    # CREATE TASK
-    # -------------------
+    # CREATE
     if action == "create_task":
 
-        # prevent duplicates
         for t in active_tasks:
             if t.category == category:
-                return t  # already exists
+                return t
 
         task = Task(
             id=str(uuid.uuid4()),
@@ -155,19 +152,15 @@ def execute(decision, db, room):
         db.commit()
         return task
 
-    # -------------------
-    # COMPLETE TASK
-    # -------------------
+    # COMPLETE
     if action == "mark_complete":
 
-        # 🔥 CASE 1: only one task → safe
         if len(active_tasks) == 1:
             task = active_tasks[0]
             task.status = "completed"
             db.commit()
             return task
 
-        # 🔥 CASE 2: match by category
         if category:
             for t in active_tasks:
                 if t.category == category:
@@ -175,12 +168,9 @@ def execute(decision, db, room):
                     db.commit()
                     return t
 
-        # 🔥 CASE 3: fallback → DO NOTHING
         return None
 
-    # -------------------
-    # CANCEL TASK
-    # -------------------
+    # CANCEL
     if action == "cancel_task":
 
         if len(active_tasks) == 1:
@@ -199,3 +189,92 @@ def execute(decision, db, room):
         return None
 
     return None
+
+
+# -----------------------
+# RESPONSE ENGINE (LLM)
+# -----------------------
+
+def generate_response(actions):
+
+    prompt = f"""
+You are a hotel WhatsApp concierge.
+
+You MUST generate a reply STRICTLY based on the given actions.
+
+CRITICAL RULES:
+- Do NOT invent anything
+- Do NOT mention things not in actions
+- Do NOT use generic phrases like "request received"
+- Keep it short (1 sentence)
+- Sound natural and human
+
+Action meanings:
+- created → say what is being sent
+- duplicate → already working
+- cancelled → confirm cancellation
+- completed → acknowledge completion
+- escalation → urgent handling
+- ambiguous → ask which request
+- ignore → empty reply
+
+Actions:
+{actions}
+
+Generate ONLY the reply.
+"""
+
+    res = client.chat.completions.create(
+        model="gpt-5-mini",
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    return res.choices[0].message.content.strip()
+
+
+# -----------------------
+# WEBHOOK
+# -----------------------
+
+@app.post("/webhook")
+async def whatsapp_webhook(req: Request):
+
+    resp = MessagingResponse()
+
+    try:
+        print("STEP 1: message received")
+
+        form = await req.form()
+        msg = form.get("Body")
+        phone = form.get("From")
+
+        room = phone[-3:]
+
+        print("📩", msg)
+
+        db: Session = SessionLocal()
+
+        tasks = db.query(Task).filter(Task.room == room).all()
+
+        # DECISION
+        decision = llm_decide(msg, tasks)
+        print("🧠 decision:", decision)
+
+        decision = validate(decision)
+
+        # EXECUTION
+        execute(decision, db, room)
+
+        # RESPONSE
+        actions = decision_to_actions(decision)
+        reply = generate_response(actions)
+
+        print("💬 reply:", reply)
+
+        resp.message(reply if reply else "👍")
+
+    except Exception as e:
+        print("❌ ERROR:", str(e))
+        resp.message("Working on it 👍")
+
+    return Response(content=str(resp), media_type="application/xml")
