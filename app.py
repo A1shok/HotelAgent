@@ -1,157 +1,195 @@
-from fastapi.responses import Response
-from twilio.twiml.messaging_response import MessagingResponse
 from fastapi import FastAPI, Request
-from db import SessionLocal, Task
-from ai import parse_message, generate_response
-from datetime import datetime
+from fastapi.responses import Response
+from sqlalchemy.orm import Session
+from twilio.twiml.messaging_response import MessagingResponse
+from openai import OpenAI
+import json
 import uuid
+from datetime import datetime
 
+from db import SessionLocal, Task
+
+client = OpenAI()
 app = FastAPI()
 
+# -----------------------
+# LLM DECISION ENGINE
+# -----------------------
 
-# -------------------------
-# CONTROL ENGINE (unchanged)
-# -------------------------
-def decide(db, room, ai):
+def llm_decide(message, db_tasks):
 
-    tasks = db.query(Task).filter(
-        Task.room == room,
-        Task.status != "closed",
-        Task.status != "cancelled"
-    ).all()
+    structured_state = {
+        "active_tasks": [
+            {
+                "id": t.id,
+                "category": t.category,
+                "status": t.status
+            }
+            for t in db_tasks if t.status == "active"
+        ]
+    }
 
-    # -------------------------
-    # GREETING
-    # -------------------------
-    if ai["intent"] == "greeting":
-        return "greeting", None
+    prompt = f"""
+You are a hotel concierge decision engine.
 
-    # -------------------------
-    # INFO
-    # -------------------------
-    if ai["intent"] == "info_request":
-        return "info", None
+You are NOT writing a reply.
+You are deciding system behavior.
 
-    # -------------------------
-    # TASK
-    # -------------------------
-    if ai["intent"] == "task":
-        for t in tasks:
-            if t.category == ai["category"]:
-                t.quantity += 1
-                db.commit()
-                return "duplicate", t
+CONTEXT:
+{json.dumps(structured_state)}
 
-        return "create", None
+USER MESSAGE:
+"{message}"
 
-    # -------------------------
-    # COMPLETION (FIXED)
-    # -------------------------
-    if ai["intent"] == "completion":
+POSSIBLE ACTIONS:
+- create_task(category)
+- mark_complete(task_id)
+- cancel_task(task_id)
+- ask_clarification
+- followup_status
+- ignore
 
-        if not tasks:
-            return "default", None
+RULES:
+- Use context heavily
+- If duplicate → do not create new
+- If strong completion + 1 task → mark_complete
+- If multiple tasks + completion → ask_clarification
+- If cancel → cancel correct task
 
-        # if category mentioned → use it
-        for t in tasks:
-            if t.category == ai.get("category"):
-                t.status = "completed_unverified"
-                db.commit()
-                return "completed", t
+OUTPUT JSON ONLY:
+{{
+  "action": "...",
+  "task_id": "...",
+  "category": "...",
+  "reason": "..."
+}}
+"""
 
-        # else → pick MOST RECENT task
-        task = sorted(tasks, key=lambda x: x.created_at, reverse=True)[0]
+    res = client.chat.completions.create(
+        model="gpt-5-mini",
+        messages=[{"role": "user", "content": prompt}]
+    )
 
-        task.status = "completed_unverified"
+    try:
+        return json.loads(res.choices[0].message.content)
+    except:
+        return {"action": "ask_clarification"}
+
+
+# -----------------------
+# VALIDATION
+# -----------------------
+
+def validate(decision):
+    valid = [
+        "create_task",
+        "mark_complete",
+        "cancel_task",
+        "ask_clarification",
+        "followup_status",
+        "ignore"
+    ]
+
+    if decision.get("action") not in valid:
+        return {"action": "ask_clarification"}
+
+    return decision
+
+
+# -----------------------
+# EXECUTION ENGINE
+# -----------------------
+
+def execute(decision, db: Session, room):
+
+    action = decision.get("action")
+
+    if action == "create_task":
+        task = Task(
+            id=str(uuid.uuid4()),
+            room=room,
+            category=decision.get("category"),
+            status="active",
+            created_at=datetime.utcnow()
+        )
+        db.add(task)
         db.commit()
-        return "closed", task
+        return task
 
-    # -------------------------
-    # NOT RECEIVED
-    # -------------------------
-    if ai["intent"] == "not_received":
-        for t in tasks:
-            if t.status == "completed_unverified":
-                t.status = "in_progress"
-                t.escalation_level += 1
-                db.commit()
-                return "escalation", t
+    if action == "mark_complete":
+        task = db.query(Task).filter(Task.id == decision.get("task_id")).first()
+        if task:
+            task.status = "completed"
+            db.commit()
+            return task
 
-    # -------------------------
-    # CANCEL (FIXED)
-    # -------------------------
-    if ai["intent"] == "cancel":
+    if action == "cancel_task":
+        task = db.query(Task).filter(Task.id == decision.get("task_id")).first()
+        if task:
+            task.status = "cancelled"
+            db.commit()
+            return task
 
-        if not tasks:
-            return "default", None
-
-        # if category mentioned → use it
-        for t in tasks:
-            if t.category == ai.get("category"):
-                t.status = "cancelled"
-                db.commit()
-                return "cancelled", t
-
-        # else → pick MOST RECENT
-        task = sorted(tasks, key=lambda x: x.created_at, reverse=True)[0]
-
-        task.status = "cancelled"
-        db.commit()
-        return "cancelled", task
-
-    return "default", None
+    return None
 
 
-# -------------------------
-# WEBHOOK
-# -------------------------
+# -----------------------
+# RESPONSE ENGINE
+# -----------------------
+
+def generate_response(decision):
+
+    prompt = f"""
+You are a hotel WhatsApp concierge.
+
+Decision:
+{json.dumps(decision)}
+
+Rules:
+- Max 12 words
+- Natural tone
+- No generic replies
+- Be specific
+
+Generate reply:
+"""
+
+    res = client.chat.completions.create(
+        model="gpt-5-mini",
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    return res.choices[0].message.content.strip()
+
+
+# -----------------------
+# TWILIO WEBHOOK
+# -----------------------
+
 @app.post("/webhook")
 async def whatsapp_webhook(req: Request):
 
+    form = await req.form()
+    message = form.get("Body")
+    phone = form.get("From")
+
+    room = phone[-4:]  # simple mapping
+
+    db = SessionLocal()
+
+    tasks = db.query(Task).filter(
+        Task.room == room,
+        Task.status == "active"
+    ).all()
+
+    decision = llm_decide(message, tasks)
+    decision = validate(decision)
+
+    execute(decision, db, room)
+
+    reply = generate_response(decision)
+
     resp = MessagingResponse()
-
-    try:
-        print("STEP 1: message received")
-
-        form = await req.form()
-        msg = form.get("Body")
-        phone = form.get("From")
-
-        print("📩 Message:", msg)
-
-        print("STEP 2: AI parsing start")
-        ai = parse_message(msg)
-        print("STEP 2 DONE:", ai)
-
-        print("STEP 3: DB connecting")
-        db = SessionLocal()
-        print("STEP 3 DONE")
-
-        print("STEP 4: decision start")
-        action, task = decide(db, phone[-3:], ai)
-        print("STEP 4 DONE:", action)
-
-        # -------------------------
-        # AI RESPONSE (NEW)
-        # -------------------------
-        action_summary = []
-
-        if task:
-            action_summary.append({
-                "action": action,
-                "category": task.category
-            })
-        else:
-            action_summary.append({
-                "action": action
-            })
-
-        final_reply = generate_response(action_summary)
-
-        resp.message(final_reply)
-
-    except Exception as e:
-        print("❌ ERROR:", str(e))
-        resp.message("Got it 👍 working on your request")
+    resp.message(reply)
 
     return Response(content=str(resp), media_type="application/xml")
