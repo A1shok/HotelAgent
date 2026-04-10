@@ -6,3 +6,4 @@ psycopg2-binary
 twilio
 python-dotenv
 python-multipart
+pydantic
