@@ -100,15 +100,32 @@ def validate(decision):
 # EXECUTION ENGINE
 # -----------------------
 
-def execute(decision, db: Session, room):
+def execute(decision, db, room):
 
     action = decision.get("action")
+    category = decision.get("category")
+    task_id = decision.get("task_id")
 
+    # get active tasks
+    active_tasks = db.query(Task).filter(
+        Task.room == room,
+        Task.status == "active"
+    ).all()
+
+    # -------------------
+    # CREATE TASK
+    # -------------------
     if action == "create_task":
+
+        # prevent duplicates
+        for t in active_tasks:
+            if t.category == category:
+                return t  # already exists
+
         task = Task(
             id=str(uuid.uuid4()),
             room=room,
-            category=decision.get("category"),
+            category=category,
             status="active",
             created_at=datetime.utcnow()
         )
@@ -116,80 +133,47 @@ def execute(decision, db: Session, room):
         db.commit()
         return task
 
+    # -------------------
+    # COMPLETE TASK
+    # -------------------
     if action == "mark_complete":
-        task = db.query(Task).filter(Task.id == decision.get("task_id")).first()
-        if task:
+
+        # 🔥 CASE 1: only one task → safe
+        if len(active_tasks) == 1:
+            task = active_tasks[0]
             task.status = "completed"
             db.commit()
             return task
 
+        # 🔥 CASE 2: match by category
+        if category:
+            for t in active_tasks:
+                if t.category == category:
+                    t.status = "completed"
+                    db.commit()
+                    return t
+
+        # 🔥 CASE 3: fallback → DO NOTHING
+        return None
+
+    # -------------------
+    # CANCEL TASK
+    # -------------------
     if action == "cancel_task":
-        task = db.query(Task).filter(Task.id == decision.get("task_id")).first()
-        if task:
+
+        if len(active_tasks) == 1:
+            task = active_tasks[0]
             task.status = "cancelled"
             db.commit()
             return task
 
+        if category:
+            for t in active_tasks:
+                if t.category == category:
+                    t.status = "cancelled"
+                    db.commit()
+                    return t
+
+        return None
+
     return None
-
-
-# -----------------------
-# RESPONSE ENGINE
-# -----------------------
-
-def generate_response(decision):
-
-    prompt = f"""
-You are a hotel WhatsApp concierge.
-
-Decision:
-{json.dumps(decision)}
-
-Rules:
-- Max 12 words
-- Natural tone
-- No generic replies
-- Be specific
-
-Generate reply:
-"""
-
-    res = client.chat.completions.create(
-        model="gpt-5-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
-
-    return res.choices[0].message.content.strip()
-
-
-# -----------------------
-# TWILIO WEBHOOK
-# -----------------------
-
-@app.post("/webhook")
-async def whatsapp_webhook(req: Request):
-
-    form = await req.form()
-    message = form.get("Body")
-    phone = form.get("From")
-
-    room = phone[-4:]  # simple mapping
-
-    db = SessionLocal()
-
-    tasks = db.query(Task).filter(
-        Task.room == room,
-        Task.status == "active"
-    ).all()
-
-    decision = llm_decide(message, tasks)
-    decision = validate(decision)
-
-    execute(decision, db, room)
-
-    reply = generate_response(decision)
-
-    resp = MessagingResponse()
-    resp.message(reply)
-
-    return Response(content=str(resp), media_type="application/xml")
