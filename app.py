@@ -23,7 +23,8 @@ def llm_decide(message, db_tasks):
             {
                 "id": t.id,
                 "category": t.category,
-                "status": t.status
+                "status": t.status,
+                "created_at": str(t.created_at)
             }
             for t in db_tasks if t.status == "active"
         ]
@@ -32,37 +33,128 @@ def llm_decide(message, db_tasks):
     prompt = f"""
 You are a hotel concierge decision engine.
 
-You are NOT writing a reply.
-You are deciding system behavior.
+You DO NOT reply to user.
+You decide system actions.
 
-CONTEXT:
+------------------------
+CONTEXT
+------------------------
 {json.dumps(structured_state)}
 
-USER MESSAGE:
+------------------------
+USER MESSAGE
+------------------------
 "{message}"
 
-POSSIBLE ACTIONS:
+------------------------
+POSSIBLE ACTIONS
+------------------------
 - create_task(category)
 - mark_complete(task_id)
 - cancel_task(task_id)
+- followup_status(task_id)
 - ask_clarification
-- followup_status
 - ignore
 
-RULES:
-- Use context heavily
-- If duplicate → do not create new
-- If strong completion + 1 task → mark_complete
-- If multiple tasks + completion → ask_clarification
-- If cancel → cancel correct task
+------------------------
+CRITICAL RULES
+------------------------
 
-OUTPUT JSON ONLY:
-{{
-  "action": "...",
-  "task_id": "...",
-  "category": "...",
-  "reason": "..."
-}}
+1. MULTI-INTENT:
+If user asks multiple things → return MULTIPLE actions
+
+Example:
+"I need towels and water"
+→ [
+  {{"action": "create_task", "category": "towels"}},
+  {{"action": "create_task", "category": "water"}}
+]
+
+---
+
+2. GREETING / NOISE:
+If message is greeting, typo, or irrelevant:
+→ return [{{"action": "ignore"}}]
+
+Examples:
+"hi", "ok", "hello", "hmm", "typo"
+→ ignore
+
+---
+
+3. COMPLETION:
+If user says:
+"done", "fixed", "thanks fixed", "resolved"
+
+AND:
+- only 1 active task → complete it
+- multiple tasks → use category if mentioned
+- if unclear → ask_clarification
+
+---
+
+4. FOLLOW-UP:
+If user says:
+"where is it", "not received", "still not"
+
+→ pick MOST RECENT active task
+→ followup_status(task_id)
+
+---
+
+5. CANCEL:
+If user says cancel:
+- if 1 task → cancel it
+- if multiple → match category
+- if unclear → ask_clarification
+
+---
+
+6. DUPLICATE:
+If same task already active:
+→ DO NOT create again
+
+---
+
+7. INFO REQUEST:
+If user asks info (wifi, menu, breakfast):
+→ return ignore
+(handled by response layer separately)
+
+---
+
+8. PRIORITY:
+Always prefer:
+- category match
+- latest task
+
+---
+
+------------------------
+OUTPUT FORMAT (VERY IMPORTANT)
+------------------------
+
+Return JSON ARRAY ONLY
+
+Example:
+[
+  {{"action": "create_task", "category": "towels"}},
+  {{"action": "create_task", "category": "water"}}
+]
+
+OR
+
+[
+  {{"action": "mark_complete", "task_id": "123"}}
+]
+
+OR
+
+[
+  {{"action": "ask_clarification"}}
+]
+
+NO TEXT. ONLY JSON ARRAY.
 """
 
     res = client.chat.completions.create(
@@ -73,27 +165,30 @@ OUTPUT JSON ONLY:
     try:
         return json.loads(res.choices[0].message.content)
     except:
-        return {"action": "ask_clarification"}
-
+        return [{"action": "ask_clarification"}]
 
 # -----------------------
 # VALIDATION
 # -----------------------
 
-def validate(decision):
-    valid = [
+def validate(decisions):
+
+    valid = {
         "create_task",
         "mark_complete",
         "cancel_task",
         "ask_clarification",
         "followup_status",
         "ignore"
-    ]
+    }
 
-    if decision.get("action") not in valid:
-        return {"action": "ask_clarification"}
+    cleaned = []
 
-    return decision
+    for d in decisions:
+        if d.get("action") in valid:
+            cleaned.append(d)
+
+    return cleaned if cleaned else [{"action": "ask_clarification"}]
 
 
 # -----------------------
@@ -257,17 +352,19 @@ async def whatsapp_webhook(req: Request):
         tasks = db.query(Task).filter(Task.room == room).all()
 
         # DECISION
-        decision = llm_decide(msg, tasks)
-        print("🧠 decision:", decision)
+        decisions = llm_decide(msg, tasks)
+        print("🧠 decision:", decisions)
 
-        decision = validate(decision)
+        decisions = validate(decisions)
 
-        # EXECUTION
-        execute(decision, db, room)
+        all_actions = []
 
-        # RESPONSE
-        actions = decision_to_actions(decision)
-        reply = generate_response(actions)
+        for decision in decisions:
+            execute(decision, db, room)
+            actions = decision_to_actions(decision)
+            all_actions.extend(actions)
+
+        reply = generate_response(all_actions)
 
         print("💬 reply:", reply)
 
