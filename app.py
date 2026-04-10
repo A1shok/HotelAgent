@@ -298,7 +298,14 @@ NO TEXT. NO EXPLANATION. ONLY JSON.
     )
 
     try:
-        return json.loads(res.choices[0].message.content)
+    decision = json.loads(res.choices[0].message.content)
+
+    # 🔥 ALWAYS RETURN LIST
+    if isinstance(decision, dict):
+        decision = [decision]
+
+    return decision
+
     except:
         return [{"action": "ask_clarification"}]
 
@@ -315,6 +322,7 @@ def validate(decisions):
         "ask_clarification",
         "followup_status",
         "ignore"
+        "info_request"
     }
 
     cleaned = []
@@ -330,7 +338,7 @@ def validate(decisions):
 # DECISION → ACTIONS
 # -----------------------
 
-def decision_to_actions(decision):
+def decision_to_actions(decisions):
 
     action_map = {
         "create_task": "created",
@@ -338,16 +346,27 @@ def decision_to_actions(decision):
         "cancel_task": "cancelled",
         "ask_clarification": "ambiguous",
         "followup_status": "escalation",
-        "ignore": "ignore"
+        "ignore": "ignore",
+        "info_request": "info"
     }
 
-    action = decision.get("action")
-    mapped = action_map.get(action, "unknown")
+    actions = []
 
-    if decision.get("category"):
-        return [{"action": mapped, "category": decision.get("category")}]
+    for decision in decisions:
+        action = decision.get("action")
+        mapped = action_map.get(action, "unknown")
 
-    return [{"action": mapped}]
+        obj = {"action": mapped}
+
+        if decision.get("category"):
+            obj["category"] = decision.get("category")
+
+        if decision.get("query"):
+            obj["query"] = decision.get("query")
+
+        actions.append(obj)
+
+    return actions
 
 
 # -----------------------
@@ -492,12 +511,11 @@ async def whatsapp_webhook(req: Request):
 
         decisions = validate(decisions)
 
-        all_actions = []
-
         for decision in decisions:
             execute(decision, db, room)
-            actions = decision_to_actions(decision)
-            all_actions.extend(actions)
+
+        # 🔥 THEN convert ALL at once
+        all_actions = decision_to_actions(decisions)
 
         reply = generate_response(all_actions)
 
