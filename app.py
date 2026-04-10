@@ -298,13 +298,13 @@ NO TEXT. NO EXPLANATION. ONLY JSON.
     )
 
     try:
-    decision = json.loads(res.choices[0].message.content)
+        decision = json.loads(res.choices[0].message.content)
+    
+        # 🔥 ALWAYS RETURN LIST
+        if isinstance(decision, dict):
+            decision = [decision]
 
-    # 🔥 ALWAYS RETURN LIST
-    if isinstance(decision, dict):
-        decision = [decision]
-
-    return decision
+        return decision
 
     except:
         return [{"action": "ask_clarification"}]
