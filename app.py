@@ -353,7 +353,7 @@ def decision_to_actions(decisions):
         "ask_clarification": "ambiguous",
         "followup_status": "escalation",
         "ignore": "ignore",
-        "info_request": "info"
+        "info_request": "info",
         "reset_session": "completed"
     }
 
