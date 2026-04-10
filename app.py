@@ -382,6 +382,18 @@ def execute(decision, db, room):
         Task.room == room,
         Task.status == "active"
     ).all()
+    # -------------------
+    # RESET SESSION
+    # -------------------
+    if action == "reset_session":
+
+        db.query(Task).filter(
+            Task.room == room,
+            Task.status == "active"
+        ).update({"status": "completed"})
+
+        db.commit()
+        return None
 
     # CREATE
     if action == "create_task":
