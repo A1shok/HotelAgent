@@ -66,3 +66,4 @@ Generate ONLY the final reply.
 
     return res.choices[0].message.content.strip()
 
+
