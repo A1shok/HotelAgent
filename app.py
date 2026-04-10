@@ -259,6 +259,11 @@ If user sends:
 "hello???", "any update??", repeated messages
 
 → followup MOST RECENT task
+21.RESET
+If user says:
+"start fresh", "new request", "ignore previous"
+
+→ [{"action":"reset_session"}]
 
 --------------------------------
 OUTPUT FORMAT (STRICT)
@@ -323,6 +328,7 @@ def validate(decisions):
         "followup_status",
         "ignore"
         "info_request"
+        "reset session"
     }
 
     cleaned = []
@@ -348,6 +354,7 @@ def decision_to_actions(decisions):
         "followup_status": "escalation",
         "ignore": "ignore",
         "info_request": "info"
+        "reset_session": "completed"
     }
 
     actions = []
