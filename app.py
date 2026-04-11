@@ -263,8 +263,7 @@ If user sends:
 If user says:
 "start fresh", "new request", "ignore previous"
 
-→ [{"action":"reset_session"}]
-
+→ [{{"action":"reset_session"}}]
 --------------------------------
 OUTPUT FORMAT (STRICT)
 --------------------------------
