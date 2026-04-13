@@ -92,26 +92,26 @@ Examples:
 
 "need water and towels"
 -> [
-{"action":"create_task","category":"water"},
-{"action":"create_task","category":"towels"}
+{{"action":"create_task","category":"water"}},
+{{"action":"create_task","category":"towels"}}
 ]
 
 "need water and wifi password"
 -> [
-{"action":"create_task","category":"water"},
-{"action":"info_request","query":"wifi password"}
+{{"action":"create_task","category":"water"}},
+{{"action":"info_request","query":"wifi password"}}
 ]
 
 "cancel water and send towels"
 -> [
-{"action":"cancel_task","category":"water"},
-{"action":"create_task","category":"towels"}
+{{"action":"cancel_task","category":"water"}},
+{{"action":"create_task","category":"towels"}}
 ]
 
 "AC fixed but towels not received"
 -> [
-{"action":"mark_complete","category":"ac"},
-{"action":"followup_status","category":"towels"}
+{{"action":"mark_complete","category":"ac"}},
+{{"action":"followup_status","category":"towels"}}
 ]
 
 --------------------------------
@@ -301,15 +301,15 @@ Return ONLY JSON ARRAY.
 Examples:
 
 [
-{"action":"create_task","category":"towels"}
+{{"action":"create_task","category":"towels"}}
 ]
 
 [
-{"action":"followup_status","category":"water"}
+{{"action":"followup_status","category":"water"}}
 ]
 
 [
-{"action":"ask_clarification"}
+{{"action":"ask_clarification"}}
 ]
 
 NO TEXT. NO EXPLANATION. ONLY JSON.
