@@ -77,7 +77,7 @@ AVAILABLE ACTIONS
 - followup_status(category)
 - info_request(query)
 - ask_clarification
--reset_session
+- reset_session
 - ignore
 
 --------------------------------
