@@ -30,7 +30,7 @@ def llm_decide(message, db_tasks):
         ]
     }
 
-    prompt = f"""
+    prompt = prompt = f"""
 You are a hotel concierge decision engine.
 
 You DO NOT reply to the user.
@@ -39,7 +39,7 @@ You ONLY decide system actions.
 --------------------------------
 CONTEXT (STATE)
 --------------------------------
-{json.dumps(structured_state)}
+{structured_state}
 
 --------------------------------
 USER MESSAGE
@@ -47,253 +47,212 @@ USER MESSAGE
 "{message}"
 
 --------------------------------
+GLOBAL PRINCIPLES
+--------------------------------
+
+- Understand intent based on MEANING, not exact words
+- Handle typos, Hinglish, informal language
+- Always use CONTEXT (active tasks)
+- Avoid duplicates
+- Prefer existing tasks over new ones
+- Treat examples as guidance, not exhaustive list
+- Generalize similar meaning phrases automatically
+
+STATE SIGNALS:
+- "still", "again", "not yet" → follow-up
+- "fixed", "done", "received" → completion
+
+- NEVER assume completion if multiple tasks exist
+- If unsure → ask_clarification (never guess)
+
+PRIORITY:
+category match > semantic match > recent task > clarification
+
+--------------------------------
 AVAILABLE ACTIONS
 --------------------------------
 - create_task(category)
-- mark_complete(task_id)
-- cancel_task(task_id)
-- followup_status(task_id)
+- mark_complete(category)
+- cancel_task(category)
+- followup_status(category)
 - info_request(query)
 - ask_clarification
+-reset_session
 - ignore
 
 --------------------------------
-BEHAVIOR RULES (STRICT)
+1. MULTI-INTENT (CORE)
 --------------------------------
 
-1. MULTI-INTENT
-If user asks multiple things → return multiple actions
+- Split message into independent intents
+- Each intent → ONE action
+- DO NOT ignore any part
 
-Example:
-"I need towels and water"
+Examples:
+
+"need water and towels"
 → [
-  {{"action":"create_task","category":"towels"}},
-  {{"action":"create_task","category":"water"}}
+{{"action":"create_task","category":"water"}},
+{{"action":"create_task","category":"towels"}}
 ]
 
----
-
-2. DIRECT REQUEST (VERY IMPORTANT)
-If user clearly asks for something (need, send, give, want)
-→ ALWAYS create_task
-
----
-
-3. ROOM ISSUES / COMPLAINTS
-If user describes problem:
-dirty, hot, smell, not clean, AC not working
-
-→ map to task:
-
-dirty → cleaning  
-AC not working → ac  
-hot room → ac  
-
-→ create_task
-
----
-
-4. COMPLETION
-If user says:
-"done", "fixed", "thanks fixed", "resolved"
-
-→ if 1 active task → mark_complete  
-→ if multiple:
-   - use category if present
-   - else ask_clarification
-
----
-
-5. FOLLOW-UP / STATUS
-If user says:
-"where is it", "not received", "still not", "hello???", "any update"
-
-→ pick MOST RECENT active task  
-→ followup_status(task_id)
-
----
-
-6. CANCEL
-If user says cancel:
-
-- if 1 task → cancel it  
-- if multiple:
-   - match category if given
-   - else ask_clarification
-
----
-
-7. PARTIAL FOLLOW-UP
-If user says:
-"what about towels", "and shampoo?"
-
-→ create_task for that item
-
----
-
-8. SHORT CATEGORY
-If user sends:
-"ac", "towels", "water"
-
-→ match existing task OR create new if none
-
----
-
-9. INFO REQUEST (IMPORTANT)
-If user asks:
-wifi, menu, breakfast, timing, checkout
-
-→ return:
-{{"action":"info_request","query":"<actual intent>"}}
-
----
-
-10. MIXED INTENT (CRITICAL)
-If message has BOTH task + info:
-
-"I need water and wifi password"
-
+"need water and wifi password"
 → [
-  {{"action":"create_task","category":"water"}},
-  {{"action":"info_request","query":"wifi password"}}
+{{"action":"create_task","category":"water"}},
+{{"action":"info_request","query":"wifi password"}}
 ]
 
----
-
-11. DUPLICATE PREVENTION
-If same task already active:
-→ DO NOT create again
-
----
-
-12. EMOTIONAL / COMPLAINT (NO TASK)
-If user says:
-"worst service", "bad service"
-
-→ followup MOST RECENT task
-
----
-
-13. GREETING / NOISE
-If message is:
-"hi", "hello", "ok", "thanks", typo
-
-→ ignore
-
----
-
-14. PRIORITY LOGIC
-Always prefer:
-1. category match  
-2. most recent task  
-
----
-
-15. PARTIAL COMPLETION (CRITICAL)
-
-If user mentions one task completed but others exist:
-
-Example:
-"AC fixed but waiting for towels"
-
+"cancel water and send towels"
 → [
-  {{"action":"mark_complete","category":"ac"}},
-  {{"action":"followup_status","category":"towels"}}
+{{"action":"cancel_task","category":"water"}},
+{{"action":"create_task","category":"towels"}}
 ]
-
-NEVER mark all tasks complete unless explicitly stated.
-
----
-
-16. VAGUE COMPLETION
-
-If user says:
-"done", "fixed", "thanks fixed"
-
-AND multiple tasks exist:
-
-→ ask_clarification
-
----
-
-17. FAILURE AFTER COMPLETION
-
-If user says:
-"still not fixed", "not done", "again problem"
-
-→ treat as ACTIVE issue
-
-→ [
-  {{"action":"create_task","category":"<same as before>"}}
-]
-
----
-
-18. COMPLAINT WITH CONTEXT
-
-If user says:
-"worst service", "still waiting"
-
-→ attach to MOST RECENT task
-
-→ followup_status
-
----
-
-19. MIXED STATE MESSAGE
-
-If user gives mixed info:
 
 "AC fixed but towels not received"
-
 → [
-  {{"action":"mark_complete","category":"ac"}},
-  {{"action":"followup_status","category":"towels"}}
+{{"action":"mark_complete","category":"ac"}},
+{{"action":"followup_status","category":"towels"}}
 ]
 
----
-
-20. REPEATED / URGENT MESSAGE
-
-If user sends:
-"hello???", "any update??", repeated messages
-
-→ followup MOST RECENT task
-21.RESET
-If user says:
-"start fresh", "new request", "ignore previous"
-
-→ [{{"action":"reset_session"}}]
 --------------------------------
-OUTPUT FORMAT (STRICT)
+2. DIRECT REQUEST
+--------------------------------
+
+Service → create_task  
+Info → info_request  
+
+IMPORTANT:
+- Problems → ALWAYS task
+- Info → NEVER task
+
+--------------------------------
+3. ROOM ISSUES (MAPPING)
+--------------------------------
+
+AC → "ac"  
+dirty / smell → "cleaning"  
+
+If already active → followup_status
+
+--------------------------------
+4. FOLLOW-UP / STATUS
+--------------------------------
+
+Detect:
+"where is it", "still waiting", "not received", "any update"
+
+RESOLUTION:
+
+- category → followup_status
+- semantic → followup_status
+- one task → follow
+- multiple → recent OR ask_clarification
+
+URGENCY:
+
+"hello???", "??"
+→ follow most relevant
+
+FAILURE SIGNAL:
+
+"still not working", "not fixed", "again problem", "still not received"
+
+→ If task was previously COMPLETED:
+   → create_task (REOPEN)
+→ Else:
+   → followup_status
+
+--------------------------------
+5. COMPLETION
+--------------------------------
+
+"done", "fixed", "received"
+
+- one task → mark_complete
+- category → mark_complete(category)
+
+PARTIAL:
+
+"AC fixed but towels not received"
+→ complete + follow-up
+
+--------------------------------
+6. VAGUE COMPLETION
+--------------------------------
+
+- one task → mark_complete
+- multiple → ask_clarification
+
+--------------------------------
+7. CANCELLATION
+--------------------------------
+
+"cancel water"
+→ cancel_task
+
+- one task → cancel
+- multiple → ask_clarification
+
+--------------------------------
+8. ADD-ON
+--------------------------------
+
+"and towels"
+→ create_task
+
+(no duplicates)
+
+--------------------------------
+9. SHORT INPUT
+--------------------------------
+
+"ac", "towels"
+
+- exists → followup_status
+- unclear → ask_clarification
+
+--------------------------------
+10. INFO REQUEST
+--------------------------------
+
+"wifi password" → info_request  
+"wifi not working" → create_task  
+
+--------------------------------
+11. LOW-INTENT
+--------------------------------
+
+"hi", "ok", "thanks"
+→ ignore
+
+(EXCEPTION → if tied to task → follow-up)
+
+--------------------------------
+12. DUPLICATE PREVENTION
+--------------------------------
+
+If active exists:
+→ followup_status
+
+--------------------------------
+13. CONFLICT RESOLUTION
+--------------------------------
+
+1. category  
+2. semantic  
+3. intent  
+4. single  
+5. recent  
+6. clarify  
+
+--------------------------------
+OUTPUT FORMAT
 --------------------------------
 
 Return ONLY JSON ARRAY.
 
-Examples:
-
-[
-  {{"action":"create_task","category":"towels"}}
-]
-
-[
-  {{"action":"cancel_task","category":"water"}},
-  {{"action":"create_task","category":"towels"}}
-]
-
-[
-  {{"action":"followup_status","task_id":"123"}}
-]
-
-[
-  {{"action":"info_request","query":"wifi password"}}
-]
-
-[
-  {{"action":"ask_clarification"}}
-]
-
-NO TEXT. NO EXPLANATION. ONLY JSON.
+NO TEXT. ONLY JSON.
+"""
 """
 
     res = client.chat.completions.create(
@@ -303,15 +262,16 @@ NO TEXT. NO EXPLANATION. ONLY JSON.
 
     try:
         decision = json.loads(res.choices[0].message.content)
-    
-        # 🔥 ALWAYS RETURN LIST
+
         if isinstance(decision, dict):
             decision = [decision]
 
         return decision
 
-    except:
+    except Exception as e:
+        print("Decision parse error:", str(e))
         return [{"action": "ask_clarification"}]
+
 
 # -----------------------
 # VALIDATION
@@ -325,9 +285,9 @@ def validate(decisions):
         "cancel_task",
         "ask_clarification",
         "followup_status",
-        "ignore"
-        "info_request"
-        "reset session"
+        "ignore",
+        "info_request",
+        "reset_session"
     }
 
     cleaned = []
@@ -353,7 +313,7 @@ def decision_to_actions(decisions):
         "followup_status": "escalation",
         "ignore": "ignore",
         "info_request": "info",
-        "reset_session": "completed"
+        "reset_session": "ignore"
     }
 
     actions = []
@@ -365,7 +325,7 @@ def decision_to_actions(decisions):
         obj = {"action": mapped}
 
         if decision.get("category"):
-            obj["category"] = decision.get("category")
+            obj["category"] = decision.get("category").lower()
 
         if decision.get("query"):
             obj["query"] = decision.get("query")
@@ -384,28 +344,27 @@ def execute(decision, db, room):
     action = decision.get("action")
     category = decision.get("category")
 
+    if category:
+        category = category.lower()
+
     active_tasks = db.query(Task).filter(
         Task.room == room,
         Task.status == "active"
     ).all()
-    # -------------------
-    # RESET SESSION
-    # -------------------
-    if action == "reset_session":
 
+    # RESET SESSION
+    if action == "reset_session":
         db.query(Task).filter(
             Task.room == room,
             Task.status == "active"
         ).update({"status": "completed"})
-
         db.commit()
         return None
 
     # CREATE
     if action == "create_task":
-
         for t in active_tasks:
-            if t.category == category:
+            if t.category.lower() == category:
                 return t
 
         task = Task(
@@ -421,7 +380,6 @@ def execute(decision, db, room):
 
     # COMPLETE
     if action == "mark_complete":
-
         if len(active_tasks) == 1:
             task = active_tasks[0]
             task.status = "completed"
@@ -430,7 +388,7 @@ def execute(decision, db, room):
 
         if category:
             for t in active_tasks:
-                if t.category == category:
+                if t.category.lower() == category:
                     t.status = "completed"
                     db.commit()
                     return t
@@ -439,7 +397,6 @@ def execute(decision, db, room):
 
     # CANCEL
     if action == "cancel_task":
-
         if len(active_tasks) == 1:
             task = active_tasks[0]
             task.status = "cancelled"
@@ -448,7 +405,7 @@ def execute(decision, db, room):
 
         if category:
             for t in active_tasks:
-                if t.category == category:
+                if t.category.lower() == category:
                     t.status = "cancelled"
                     db.commit()
                     return t
@@ -459,7 +416,7 @@ def execute(decision, db, room):
 
 
 # -----------------------
-# RESPONSE ENGINE (LLM)
+# RESPONSE ENGINE
 # -----------------------
 
 def generate_response(actions):
@@ -467,28 +424,29 @@ def generate_response(actions):
     prompt = f"""
 You are a hotel WhatsApp concierge.
 
-You MUST generate a reply STRICTLY based on the given actions.
-
-CRITICAL RULES:
-- Do NOT invent anything
-- Do NOT mention things not in actions
-- Do NOT use generic phrases like "request received"
-- Keep it short (1 sentence)
-- Sound natural and human
-
-Action meanings:
-- created → say what is being sent
-- duplicate → already working
-- cancelled → confirm cancellation
-- completed → acknowledge completion
-- escalation → urgent handling
-- ambiguous → ask which request
-- ignore → empty reply
+Generate reply STRICTLY based on actions.
 
 Actions:
 {actions}
 
-Generate ONLY the reply.
+Rules:
+- 1 short sentence
+- Friendly
+- 1 emoji max
+- Combine actions naturally
+- No assumptions
+
+Mappings:
+
+created → "Sending {{category}} 👍"
+cancelled → "Cancelled {{category}} 👍"
+completed → "Glad it's sorted 👍"
+escalation → "Checking this for you 👍"
+ambiguous → "Which request do you mean?"
+info → Answer directly
+ignore → "Hi 👋 how can I help you?"
+
+Return only reply.
 """
 
     res = client.chat.completions.create(
@@ -507,6 +465,7 @@ Generate ONLY the reply.
 async def whatsapp_webhook(req: Request):
 
     resp = MessagingResponse()
+    db: Session = SessionLocal()
 
     try:
         print("STEP 1: message received")
@@ -519,20 +478,16 @@ async def whatsapp_webhook(req: Request):
 
         print("📩", msg)
 
-        db: Session = SessionLocal()
-
         tasks = db.query(Task).filter(Task.room == room).all()
 
-        # DECISION
         decisions = llm_decide(msg, tasks)
-        print("🧠 decision:", decisions)
+        print("🧠 decision:", json.dumps(decisions, indent=2))
 
         decisions = validate(decisions)
 
         for decision in decisions:
             execute(decision, db, room)
 
-        # 🔥 THEN convert ALL at once
         all_actions = decision_to_actions(decisions)
 
         reply = generate_response(all_actions)
@@ -544,5 +499,8 @@ async def whatsapp_webhook(req: Request):
     except Exception as e:
         print("❌ ERROR:", str(e))
         resp.message("Working on it 👍")
+
+    finally:
+        db.close()
 
     return Response(content=str(resp), media_type="application/xml")
