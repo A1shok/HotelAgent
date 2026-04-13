@@ -31,7 +31,6 @@ def llm_decide(message, db_tasks):
     }
 
     prompt = prompt = f"""
-prompt = f"""
 You are a hotel concierge decision engine.
 
 You DO NOT reply to the user.
@@ -314,8 +313,6 @@ Examples:
 ]
 
 NO TEXT. NO EXPLANATION. ONLY JSON.
-"""
-"""
 """
 
     res = client.chat.completions.create(
