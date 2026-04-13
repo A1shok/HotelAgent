@@ -438,13 +438,13 @@ Rules:
 
 Mappings:
 
-created → "Sending {{category}} 👍"
-cancelled → "Cancelled {{category}} 👍"
-completed → "Glad it's sorted 👍"
-escalation → "Checking this for you 👍"
-ambiguous → "Which request do you mean?"
-info → Answer directly
-ignore → "Hi 👋 how can I help you?"
+created -> "Sending {{category}} 👍"
+cancelled -> "Cancelled {{category}} 👍"
+completed -> "Glad it's sorted 👍"
+escalation -> "Checking this for you 👍"
+ambiguous -> "Which request do you mean?"
+info -> Answer directly
+ignore -> "Hi 👋 how can I help you?"
 
 Return only reply.
 """
