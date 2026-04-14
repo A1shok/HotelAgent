@@ -23,6 +23,7 @@ def llm_decide(message, db_tasks):
             {
                 "id": t.id,
                 "category": t.category,
+                "item": getattr(t, "item", None),  # 🔥 ADDED
                 "status": t.status,
                 "created_at": str(t.created_at)
             }
@@ -81,6 +82,25 @@ Map ALL user requests into these hotel departments:
 - guest_service (fallback if unclear)
 
 IMPORTANT RULES:
+
+For every task, identify BOTH:
+
+- category (department)
+- item (specific object or issue)
+
+Examples:
+
+"ac not working"
+-> {"action":"create_task","category":"engineering","item":"ac"}
+
+"tv remote"
+-> {"action":"create_task","category":"engineering","item":"tv_remote"}
+
+"need towels"
+-> {"action":"create_task","category":"housekeeping","item":"towels"}
+
+"wifi not working"
+-> {"action":"create_task","category":"it","item":"wifi"}
 
 - Users may mention specific items (like "geyser", "remote", "blanket")
   -> Map them to the closest department
@@ -409,6 +429,7 @@ def execute(decision, db, room):
 
     action = decision.get("action")
     category = decision.get("category")
+    item = decision.get("item")  # 🔥 ADDED
 
     if category:
         category = category.lower()
@@ -430,13 +451,14 @@ def execute(decision, db, room):
     # CREATE
     if action == "create_task":
         for t in active_tasks:
-            if t.category.lower() == category:
+            if t.category.lower() == category and getattr(t, "item", None) == item:  # 🔥 UPDATED
                 return t
 
         task = Task(
             id=str(uuid.uuid4()),
             room=room,
             category=category,
+            item=item,  # 🔥 ADDED
             status="active",
             created_at=datetime.utcnow()
         )
@@ -454,7 +476,7 @@ def execute(decision, db, room):
 
         if category:
             for t in active_tasks:
-                if t.category.lower() == category:
+                if t.category.lower() == category and (item is None or getattr(t, "item", None) == item):  # 🔥 UPDATED
                     t.status = "completed"
                     db.commit()
                     return t
@@ -471,7 +493,7 @@ def execute(decision, db, room):
 
         if category:
             for t in active_tasks:
-                if t.category.lower() == category:
+                if t.category.lower() == category and (item is None or getattr(t, "item", None) == item):  # 🔥 UPDATED
                     t.status = "cancelled"
                     db.commit()
                     return t
