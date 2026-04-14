@@ -12,11 +12,6 @@ from db import SessionLocal, Task
 client = OpenAI()
 app = FastAPI()
 
-from db import Base, engine
-
-Base.metadata.drop_all(bind=engine)
-Base.metadata.create_all(bind=engine)
-
 # -----------------------
 # LLM DECISION ENGINE
 # -----------------------
