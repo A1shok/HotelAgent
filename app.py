@@ -30,7 +30,7 @@ def llm_decide(message, db_tasks):
         ]
     }
 
-    prompt = prompt = f"""
+    prompt = f"""
 You are a hotel concierge decision engine.
 
 You DO NOT reply to the user.
@@ -69,8 +69,42 @@ PRIORITY:
 category match > semantic match > recent task > clarification
 
 --------------------------------
+OPERATIONAL CATEGORIES (IMPORTANT)
+--------------------------------
+
+Map ALL user requests into these hotel departments:
+
+- engineering (AC, TV, geyser, lights, fan, switches, remote, electrical issues)
+- housekeeping (towels, bedsheets, cleaning, room hygiene, toiletries)
+- fnb (food, water, menu, breakfast, beverages)
+- it (wifi, internet, connectivity, TV signal)
+- guest_service (fallback if unclear)
+
+IMPORTANT RULES:
+
+- Users may mention specific items (like "geyser", "remote", "blanket")
+  -> Map them to the closest department
+
+- DO NOT create new categories
+- DO NOT use item names as categories
+
+- If mapping is unclear:
+  -> ask_clarification
+
+--------------------------------
+EXAMPLES OF MAPPING
+--------------------------------
+
+- "ac not working", "room hot", "no cooling" -> engineering
+- "tv remote", "geyser issue", "lights not working" -> engineering
+- "towels", "bedsheet", "dirty room" -> housekeeping
+- "water", "food", "menu", "breakfast" -> fnb
+- "wifi not working", "internet slow" -> it
+
+--------------------------------
 AVAILABLE ACTIONS
 --------------------------------
+
 - create_task(category)
 - mark_complete(category)
 - cancel_task(category)
@@ -92,26 +126,20 @@ Examples:
 
 "need water and towels"
 -> [
-{{"action":"create_task","category":"water"}},
-{{"action":"create_task","category":"towels"}}
+{{"action":"create_task","category":"fnb"}},
+{{"action":"create_task","category":"housekeeping"}}
 ]
 
-"need water and wifi password"
+"ac not working and wifi password"
 -> [
-{{"action":"create_task","category":"water"}},
+{{"action":"create_task","category":"engineering"}},
 {{"action":"info_request","query":"wifi password"}}
 ]
 
 "cancel water and send towels"
 -> [
-{{"action":"cancel_task","category":"water"}},
-{{"action":"create_task","category":"towels"}}
-]
-
-"AC fixed but towels not received"
--> [
-{{"action":"mark_complete","category":"ac"}},
-{{"action":"followup_status","category":"towels"}}
+{{"action":"cancel_task","category":"fnb"}},
+{{"action":"create_task","category":"housekeeping"}}
 ]
 
 --------------------------------
@@ -120,13 +148,9 @@ Examples:
 
 If user asks for service:
 
-"need towels", "send water", "clean room", "AC not working"
-
--> create_task(category)
+-> create_task(mapped department)
 
 If informational:
-
-"wifi password", "menu", "timing"
 
 -> info_request(query)
 
@@ -135,23 +159,7 @@ IMPORTANT:
 - Info -> NEVER task
 
 --------------------------------
-3. ROOM ISSUES (MAPPING)
---------------------------------
-
-Map problems to categories:
-
-AC -> "ac"
-dirty / smell -> "cleaning"
-missing items -> item category
-
-"room dirty and ac not working"
--> create both tasks
-
-If already active:
--> followup_status (NOT create_task)
-
---------------------------------
-4. FOLLOW-UP / STATUS (CORE LOGIC)
+3. FOLLOW-UP / STATUS
 --------------------------------
 
 Detect:
@@ -160,9 +168,8 @@ Detect:
 
 RESOLUTION:
 
-- If category mentioned -> followup_status
-- If semantic match -> followup_status
-- If one task -> follow it
+- If category can be mapped -> followup_status
+- If one active task -> follow it
 - If multiple:
   -> prefer most recent
   -> else ask_clarification
@@ -186,38 +193,37 @@ FAILURE SIGNAL:
    -> followup_status
 
 --------------------------------
-5. COMPLETION
+4. COMPLETION
 --------------------------------
 
-Detect:
-
-"done", "fixed", "received", "working now"
+"done", "fixed", "received"
 
 - If one task -> mark_complete
 - If category mentioned -> mark_complete(category)
 
 PARTIAL:
 
-"AC fixed but towels not received"
+"AC fixed but still waiting for towels"
 
--> complete + follow-up
-
---------------------------------
-6. VAGUE COMPLETION
---------------------------------
-
-"done", "fixed"
-
-- If one task -> mark_complete
-- If multiple -> ask_clarification
+-> [
+{{"action":"mark_complete","category":"engineering"}},
+{{"action":"followup_status","category":"housekeeping"}}
+]
 
 --------------------------------
-7. CANCELLATION
+5. VAGUE COMPLETION
+--------------------------------
+
+- one task -> mark_complete
+- multiple -> ask_clarification
+
+--------------------------------
+6. CANCELLATION
 --------------------------------
 
 "cancel water", "no need towels"
 
--> cancel_task(category)
+-> cancel_task(mapped category)
 
 If vague:
 
@@ -225,28 +231,28 @@ If vague:
 - multiple -> ask_clarification
 
 --------------------------------
-8. ADD-ON / CONTINUATION
+7. ADD-ON / CONTINUATION
 --------------------------------
 
 "and towels", "also water"
 
--> create_task(new item)
+-> create_task(mapped category)
 
 If already exists:
--> DO NOT duplicate
+-> followup_status (NOT duplicate)
 
 --------------------------------
-9. SHORT INPUT
+8. SHORT INPUT
 --------------------------------
 
-"ac", "towels", "water"
+"ac", "water", "towels"
 
-- If task exists -> followup_status
-- If clear request -> create_task
+- If active task exists -> followup_status
+- If no active task -> create_task
 - If unclear -> ask_clarification
 
 --------------------------------
-10. INFO REQUEST
+9. INFO REQUEST
 --------------------------------
 
 "wifi password", "menu", "timing"
@@ -256,10 +262,10 @@ If already exists:
 BUT:
 
 "wifi not working"
--> create_task
+-> create_task(category = it)
 
 --------------------------------
-11. LOW-INTENT / EMOTIONAL
+10. LOW-INTENT / EMOTIONAL
 --------------------------------
 
 "hi", "ok", "thanks", "👍"
@@ -268,25 +274,25 @@ BUT:
 -> ignore
 
 EXCEPTION:
-If linked to task -> follow-up
+If tied to task -> follow-up
 
 --------------------------------
-12. DUPLICATE PREVENTION
+11. DUPLICATE PREVENTION
 --------------------------------
 
 Before create_task:
 
-If active task exists:
+If active task exists in same department:
 -> followup_status (NOT create_task)
 
 --------------------------------
-13. CONFLICT RESOLUTION
+12. CONFLICT RESOLUTION
 --------------------------------
 
 If multiple rules apply:
 
-1. category match
-2. semantic match
+1. department match
+2. semantic meaning
 3. clear intent
 4. single task
 5. recent task
@@ -301,11 +307,11 @@ Return ONLY JSON ARRAY.
 Examples:
 
 [
-{{"action":"create_task","category":"towels"}}
+{{"action":"create_task","category":"engineering"}}
 ]
 
 [
-{{"action":"followup_status","category":"water"}}
+{{"action":"followup_status","category":"housekeeping"}}
 ]
 
 [
@@ -481,32 +487,96 @@ def execute(decision, db, room):
 
 def generate_response(actions):
 
-    prompt = f"""
+    prompt = prompt = f"""
 You are a hotel WhatsApp concierge.
 
-Generate reply STRICTLY based on actions.
+Your job is to generate a short, natural reply to the guest based ONLY on the given structured actions.
 
-Actions:
+--------------------------------
+INPUT ACTIONS (STRICT JSON)
+--------------------------------
 {actions}
 
-Rules:
-- 1 short sentence
-- Friendly
-- 1 emoji max
-- Combine actions naturally
-- No assumptions
+--------------------------------
+CRITICAL RULES
+--------------------------------
 
-Mappings:
+1. ONLY use information from actions
+   - DO NOT invent anything
+   - DO NOT assume missing details
 
-created -> "Sending {{category}} 👍"
-cancelled -> "Cancelled {{category}} 👍"
-completed -> "Glad it's sorted 👍"
-escalation -> "Checking this for you 👍"
-ambiguous -> "Which request do you mean?"
-info -> Answer directly
-ignore -> "Hi 👋 how can I help you?"
+2. Convert internal categories into guest-friendly language:
 
-Return only reply.
+   engineering -> "someone to check the issue"
+   housekeeping -> "housekeeping"
+   fnb -> "your request"
+   it -> "WiFi"
+   guest_service -> "this"
+
+3. Response style:
+   - 1 short sentence (max 12–15 words)
+   - Friendly, human, WhatsApp tone
+   - Maximum 1 emoji
+   - No repetition
+
+4. Multi-action handling (VERY IMPORTANT):
+
+   - Combine naturally into ONE sentence
+   - Do NOT repeat "Sending..." twice
+   - Do NOT list categories
+
+   Example:
+   Actions:
+   [
+     {{"action":"created","category":"engineering"}},
+     {{"action":"created","category":"housekeeping"}}
+   ]
+
+   Good:
+   "Sending someone to check and housekeeping right away 👍"
+
+   Bad:
+   "Sending engineering 👍 Sending housekeeping 👍"
+
+5. Action mapping:
+
+   created ->
+     "Sending <mapped phrase>"
+
+   escalation ->
+     "Checking <mapped phrase>"
+
+   completed ->
+     "Glad it's sorted"
+
+   cancelled ->
+     "Done, cancelled"
+
+   ambiguous ->
+     "Which request do you mean?"
+
+   info ->
+     - Answer directly using query
+     - Example:
+       wifi -> "WiFi password is Hotel_Guest"
+       menu -> "Sharing the menu"
+       breakfast -> "Breakfast is from 7–10 AM"
+
+   ignore ->
+     "Hi 👋 how can I help you?"
+
+6. NEVER:
+   - Mention "engineering", "fnb", etc.
+   - Mention system terms like "task"
+   - Invent items like shampoo
+   - Repeat words unnecessarily
+
+--------------------------------
+OUTPUT
+--------------------------------
+
+Return ONLY the final reply text.
+No JSON. No explanation.
 """
 
     res = client.chat.completions.create(
