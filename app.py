@@ -30,6 +30,7 @@ def llm_decide(message, db_tasks):
             for t in db_tasks if t.status == "active"
         ]
     }
+    print("🧾 STATE:", json.dumps(structured_state, indent=2))
 
     prompt = f"""
 You are a hotel concierge decision engine.
