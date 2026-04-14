@@ -329,7 +329,7 @@ Return ONLY JSON ARRAY.
 Examples:
 
 [
-{{"action":"create_task","category":"engineering","item":"ac"}
+{{"action":"create_task","category":"engineering","item":"ac"}}
 ]
 
 [
