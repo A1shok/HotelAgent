@@ -632,6 +632,9 @@ async def whatsapp_webhook(req: Request):
 
         print("📩", msg)
 
+        db.query(Task).delete()
+        db.commit()
+
         tasks = db.query(Task).filter(Task.room == room).all()
 
         decisions = llm_decide(msg, tasks)
