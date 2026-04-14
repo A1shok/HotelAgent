@@ -267,7 +267,8 @@ If already exists:
 
 "ac", "water", "towels"
 
-- If active task exists -> followup_status
+If active task exists with SAME category AND SAME item:
+-> followup_status (NOT create_task)
 - If no active task -> create_task
 - If unclear -> ask_clarification
 
