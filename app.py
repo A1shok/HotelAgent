@@ -329,11 +329,11 @@ Return ONLY JSON ARRAY.
 Examples:
 
 [
-{{"action":"create_task","category":"engineering"}}
+{{"action":"create_task","category":"engineering","item":"ac"}
 ]
 
 [
-{{"action":"followup_status","category":"housekeeping"}}
+{{"action":"followup_status","category":"housekeeping","item":"towels"}}
 ]
 
 [
