@@ -227,8 +227,8 @@ PARTIAL:
 "AC fixed but still waiting for towels"
 
 -> [
-{{"action":"mark_complete","category":"engineering"}},
-{{"action":"followup_status","category":"housekeeping"}}
+{{"action":"mark_complete","category":"engineering","item":"ac"}},
+{{"action":"followup_status","category":"housekeeping","item":"towels"}}
 ]
 
 --------------------------------
