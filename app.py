@@ -91,16 +91,16 @@ For every task, identify BOTH:
 Examples:
 
 "ac not working"
--> {"action":"create_task","category":"engineering","item":"ac"}
+-> {{"action":"create_task","category":"engineering","item":"ac"}}
 
 "tv remote"
--> {"action":"create_task","category":"engineering","item":"tv_remote"}
+-> {{"action":"create_task","category":"engineering","item":"tv_remote"}}
 
 "need towels"
--> {"action":"create_task","category":"housekeeping","item":"towels"}
+-> {{"action":"create_task","category":"housekeeping","item":"towels"}}
 
 "wifi not working"
--> {"action":"create_task","category":"it","item":"wifi"}
+-> {{"action":"create_task","category":"it","item":"wifi"}}
 
 - Users may mention specific items (like "geyser", "remote", "blanket")
   -> Map them to the closest department
