@@ -146,20 +146,20 @@ Examples:
 
 "need water and towels"
 -> [
-{{"action":"create_task","category":"fnb"}},
-{{"action":"create_task","category":"housekeeping"}}
+{{"action":"create_task","category":"fnb","item":"water"}},
+{{"action":"create_task","category":"housekeeping","item":"towels"}}
 ]
 
 "ac not working and wifi password"
 -> [
-{{"action":"create_task","category":"engineering"}},
+{{"action":"create_task","category":"engineering","item":"ac"}},
 {{"action":"info_request","query":"wifi password"}}
 ]
 
 "cancel water and send towels"
 -> [
-{{"action":"cancel_task","category":"fnb"}},
-{{"action":"create_task","category":"housekeeping"}}
+{{"action":"cancel_task","category":"fnb","item":"water"}},
+{{"action":"create_task","category":"housekeeping","item":"towels"}}
 ]
 
 --------------------------------
