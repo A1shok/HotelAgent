@@ -16,5 +16,6 @@ class Task(Base):
     id = Column(String, primary_key=True)
     room = Column(String)
     category = Column(String)
+    item = Column(String, nullable=True)
     status = Column(String)
     created_at = Column(DateTime)
