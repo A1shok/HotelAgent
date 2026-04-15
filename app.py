@@ -23,12 +23,24 @@ def llm_decide(message, db_tasks):
             {
                 "id": t.id,
                 "category": t.category,
-                "item": getattr(t, "item", None),  # 🔥 ADDED
+                "item": getattr(t, "item", None),
                 "status": t.status,
                 "created_at": str(t.created_at)
             }
             for t in db_tasks if t.status == "active"
-        ]
+        ],
+        "recent_tasks": [
+            {
+                "category": t.category,
+                "item": getattr(t, "item", None),
+                "status": t.status
+            }
+            for t in db_tasks
+        ],
+        "last_task": {
+            "category": last_task.category,
+            "item": getattr(last_task, "item", None)
+        } if last_task else None
     }
     print("🧾 STATE:", json.dumps(structured_state, indent=2))
 
@@ -206,14 +218,20 @@ URGENCY:
 
 FAILURE SIGNAL:
 
-"still not working", "not fixed", "again problem", "still not received"
+"still not working", "not fixed", "again", "again problem", "still not received"
 
--> If task was previously COMPLETED:
-   -> create_task (REOPEN)
+RESOLUTION LOGIC (VERY IMPORTANT):
 
--> ELSE:
-   -> followup_status
+1. Check active_tasks:
+   - If matching task (same category + item) exists:
+     -> followup_status
 
+2. Else check recent_tasks:
+   - If a matching task was previously completed:
+     -> create_task (REOPEN)
+
+3. Else:
+   -> create_task
 --------------------------------
 4. COMPLETION
 --------------------------------
@@ -454,7 +472,11 @@ def execute(decision, db, room):
     # CREATE
     if action == "create_task":
         for t in active_tasks:
-            if t.category.lower() == category and getattr(t, "item", None) == item:  # 🔥 UPDATED
+            if (
+                t.status == "active" and
+                t.category.lower() == category and
+                getattr(t, "item", None) == item
+            ):
                 return t
 
         task = Task(
@@ -482,8 +504,8 @@ def execute(decision, db, room):
             for t in active_tasks:
                 if t.category.lower() == category and (item is None or getattr(t, "item", None) == item):  # 🔥 UPDATED
                     t.status = "completed"
-                    db.commit()
                     return t
+            db.commit()
 
         return None
 
@@ -643,6 +665,11 @@ async def whatsapp_webhook(req: Request):
 
         for decision in decisions:
             execute(decision, db, room)
+        db.query(Task).filter(
+            Task.room == room,
+            Task.status != "active"
+        ).delete()
+        db.commit()
         tasks_after = db.query(Task).filter(Task.room == room).all()
         print("📦 DB AFTER WRITE:", [
             {"category": t.category, "item": getattr(t, "item", None)}
