@@ -37,10 +37,12 @@ def llm_decide(message, db_tasks):
             }
             for t in db_tasks
         ],
-        "last_task": {
+        "last_task": [
+            {
             "category": last_task.category,
             "item": getattr(last_task, "item", None)
-        } if last_task else None
+            } if last_task else None
+        ]
     }
     print("🧾 STATE:", json.dumps(structured_state, indent=2))
 
