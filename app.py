@@ -661,8 +661,8 @@ async def whatsapp_webhook(req: Request):
         room = phone[-3:]
 
         # TEMP CLEAN DB (remove after testing)
-        db.query(Task).delete()
-        db.commit()
+        #db.query(Task).delete()
+        #db.commit()
 
         print("📩", msg)
         
