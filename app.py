@@ -644,6 +644,11 @@ async def whatsapp_webhook(req: Request):
 
         for decision in decisions:
             execute(decision, db, room)
+        tasks_after = db.query(Task).filter(Task.room == room).all()
+        print("📦 DB AFTER WRITE:", [
+            {"category": t.category, "item": getattr(t, "item", None)}
+            for t in tasks_after
+        ])
 
         all_actions = decision_to_actions(decisions)
 
