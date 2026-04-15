@@ -465,6 +465,7 @@ def execute(decision, db, room):
             created_at=datetime.utcnow()
         )
         db.add(task)
+        db.flush() 
         db.commit()
         return task
 
