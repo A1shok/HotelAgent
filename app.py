@@ -17,6 +17,10 @@ app = FastAPI()
 # -----------------------
 
 def llm_decide(message, db_tasks):
+    last_task = None
+
+    if db_tasks:
+        last_task = sorted(db_tasks, key=lambda x: x.created_at)[-1]
 
     structured_state = {
         "active_tasks": [
@@ -39,8 +43,8 @@ def llm_decide(message, db_tasks):
         ],
         "last_task": [
             {
-            "category": last_task.category,
-            "item": getattr(last_task, "item", None)
+                "category": getattr(last_task, "category", None),
+                "item": getattr(last_task, "item", None)
             } if last_task else None
         ]
     }
