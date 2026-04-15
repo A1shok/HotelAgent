@@ -189,7 +189,8 @@ Detect:
 
 RESOLUTION:
 
-- If category can be mapped -> followup_status
+-If category AND item match -> followup_status
+-If category matches but item is DIFFERENT -> create_task
 - If one active task -> follow it
 - If multiple:
   -> prefer most recent
