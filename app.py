@@ -16,12 +16,16 @@ app = FastAPI()
 # LLM DECISION ENGINE
 # -----------------------
 
-def llm_decide(message, db_tasks):
+def llm_decide(message, db_tasks, pending_action=None):
     last_task = None
 
     if db_tasks:
-        last_task = sorted(db_tasks, key=lambda x: x.created_at)[-1]
-
+        last_task = sorted(
+            db_tasks,
+            key=lambda x: x.created_at,
+            reverse=True
+        )[0] if db_tasks else None
+        
     structured_state = {
         "active_tasks": [
             {
@@ -43,7 +47,7 @@ def llm_decide(message, db_tasks):
         ],
         "last_task": [
             {
-                "category": getattr(last_task, "category", None),
+                "category": last_task.category,
                 "item": getattr(last_task, "item", None)
             } if last_task else None
         ]
@@ -237,7 +241,10 @@ RESOLUTION LOGIC (VERY IMPORTANT):
      -> create_task (REOPEN)
 
 3. Else:
-   -> create_task
+   - If user clearly mentions item (e.g. "AC again"):
+       -> create_task
+   - If vague (e.g. "again", "still not working"):
+       -> ask_clarification
 --------------------------------
 4. COMPLETION
 --------------------------------
@@ -267,9 +274,29 @@ PARTIAL:
 6. CANCELLATION
 --------------------------------
 
+Detect cancellation intent based on MEANING, not exact words.
+
+Examples of cancellation intent:
+
+- "no need"
+- "don't send"
+- "leave it"
+- "cancel it"
+- "not required"
+- "mat bhejo"
+- "rehne do"
+- "chahiye nahi"
+
+→ treat ALL as cancel_task
+
 "cancel water", "no need towels"
 
 -> cancel_task(mapped category)
+
+If vague:
+
+- one task -> cancel
+- multiple -> ask_clarification
 
 If vague:
 
@@ -477,13 +504,15 @@ def execute(decision, db, room):
 
     # CREATE
     if action == "create_task":
-        for t in active_tasks:
-            if (
-                t.status == "active" and
-                t.category.lower() == category and
-                getattr(t, "item", None) == item
-            ):
-                return t
+        existing = db.query(Task).filter(
+            Task.room == room,
+            Task.category == category,
+            Task.item == item,
+            Task.status == "active"
+        ).first()
+
+        if existing:
+            return existing
 
         task = Task(
             id=str(uuid.uuid4()),
@@ -561,7 +590,7 @@ CRITICAL RULES
 
 2. Convert internal categories into guest-friendly language:
 
-   engineering -> "someone to check the issue"
+   engineering -> "the issue"
    housekeeping -> "housekeeping"
    fnb -> "your request"
    it -> "WiFi"
@@ -667,8 +696,10 @@ async def whatsapp_webhook(req: Request):
         print("📩", msg)
         
         tasks = db.query(Task).filter(Task.room == room).all()
+        if any(d.get("action") == "ask_clarification" for d in decisions):
+            pending_action = "cancel"
 
-        decisions = llm_decide(msg, tasks)
+        decisions = llm_decide(msg, tasks, pending_action)
         print("🧠 decision:", json.dumps(decisions, indent=2))
 
         decisions = validate(decisions)
