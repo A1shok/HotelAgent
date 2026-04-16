@@ -679,6 +679,7 @@ async def whatsapp_webhook(req: Request):
 
     resp = MessagingResponse()
     db: Session = SessionLocal()
+    decisions = [{"action": "ask_clarification"}]
 
     try:
         print("STEP 1: message received")
@@ -699,7 +700,6 @@ async def whatsapp_webhook(req: Request):
         if any(d.get("action") == "ask_clarification" for d in decisions):
             pending_action = "cancel"
              
-        decisions = []
         decisions = llm_decide(msg, tasks, pending_action)
         print("🧠 decision:", json.dumps(decisions, indent=2))
 
