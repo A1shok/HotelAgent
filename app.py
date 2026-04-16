@@ -698,7 +698,8 @@ async def whatsapp_webhook(req: Request):
         tasks = db.query(Task).filter(Task.room == room).all()
         if any(d.get("action") == "ask_clarification" for d in decisions):
             pending_action = "cancel"
-
+             
+        decisions = []
         decisions = llm_decide(msg, tasks, pending_action)
         print("🧠 decision:", json.dumps(decisions, indent=2))
 
