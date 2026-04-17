@@ -225,27 +225,61 @@ URGENCY:
 -> If none -> ask_clarification
 -> NEVER ignore
 
-FAILURE SIGNAL:
+4.FAILURE SIGNAL:
+
+--------------------------------
+FAILURE / REOPEN SIGNAL (CRITICAL)
+--------------------------------
+
+Detect failure or repeat issues:
 
 "still not working", "not fixed", "again", "again problem", "still not received"
 
-RESOLUTION LOGIC (VERY IMPORTANT):
-
-1. Check active_tasks:
-   - If matching task (same category + item) exists:
-     -> followup_status
-
-2. Else check recent_tasks:
-   - If a matching task was previously completed:
-     -> create_task (REOPEN)
-
-3. Else:
-   - If user clearly mentions item (e.g. "AC again"):
-       -> create_task
-   - If vague (e.g. "again", "still not working"):
-       -> ask_clarification
 --------------------------------
-4. COMPLETION
+RESOLUTION LOGIC (STRICT ORDER)
+--------------------------------
+
+1. If user clearly mentions item (e.g. "AC again", "wifi still not working"):
+
+   - If SAME active task exists:
+       -> followup_status
+
+   - Else if SAME task exists in recent_tasks with status = completed:
+       -> create_task (REOPEN)
+
+   - Else:
+       -> create_task
+
+--------------------------------
+
+2. If message is VAGUE (e.g. "again", "still not working"):
+
+   - If ONLY ONE active task exists:
+       -> followup_status
+
+   - Else if last_task exists:
+       -> use last_task category + item
+
+       Then:
+
+       - If SAME active task exists:
+           -> followup_status
+
+       - Else if last_task was completed:
+           -> create_task (REOPEN)
+
+   - Else:
+       -> ask_clarification
+
+--------------------------------
+
+CRITICAL:
+
+- NEVER ignore failure signals
+- NEVER assume new task if followup is possible
+- ALWAYS prefer context (active_tasks > last_task > recent_tasks)
+--------------------------------
+5. COMPLETION
 --------------------------------
 
 "done", "fixed", "received"
@@ -263,14 +297,14 @@ PARTIAL:
 ]
 
 --------------------------------
-5. VAGUE COMPLETION
+6. VAGUE COMPLETION
 --------------------------------
 
 - one task -> mark_complete
 - multiple -> ask_clarification
 
 --------------------------------
-6. CANCELLATION
+7. CANCELLATION
 --------------------------------
 
 Detect cancellation intent based on MEANING, not exact words.
@@ -323,7 +357,7 @@ System: "Do you want to cancel AC, towels, or water?"
 User: "water"
 
 → [
-  {"action":"cancel_task","category":"fnb","item":"water"}
+  {{"action":"cancel_task","category":"fnb","item":"water"}}
 ]
 
 CRITICAL:
@@ -333,7 +367,7 @@ CRITICAL:
 - Treat user reply as FINAL selection
 
 --------------------------------
-7. ADD-ON / CONTINUATION
+8. ADD-ON / CONTINUATION
 --------------------------------
 
 "and towels", "also water"
@@ -344,7 +378,7 @@ If already exists:
 -> followup_status (NOT duplicate)
 
 --------------------------------
-8. SHORT INPUT
+9. SHORT INPUT
 --------------------------------
 
 "ac", "water", "towels"
@@ -355,7 +389,7 @@ If active task exists with SAME category AND SAME item:
 - If unclear -> ask_clarification
 
 --------------------------------
-9. INFO REQUEST
+10. INFO REQUEST
 --------------------------------
 
 "wifi password", "menu", "timing"
@@ -368,7 +402,7 @@ BUT:
 -> create_task(category = it)
 
 --------------------------------
-10. LOW-INTENT / EMOTIONAL
+11. LOW-INTENT / EMOTIONAL
 --------------------------------
 
 "hi", "ok", "thanks", "👍"
@@ -389,7 +423,7 @@ If active task exists in same department:
 -> followup_status (NOT create_task)
 
 --------------------------------
-12. CONFLICT RESOLUTION
+13. CONFLICT RESOLUTION
 --------------------------------
 
 If multiple rules apply:
