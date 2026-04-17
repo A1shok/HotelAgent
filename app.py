@@ -45,12 +45,11 @@ def llm_decide(message, db_tasks, pending_action=None):
             }
             for t in db_tasks
         ],
-        "last_task": [
+        "last_task":
             {
                 "category": last_task.category,
                 "item": getattr(last_task, "item", None)
             } if last_task else None
-        ]
     }
     print("🧾 STATE:", json.dumps(structured_state, indent=2))
 
@@ -302,6 +301,36 @@ If vague:
 
 - one task -> cancel
 - multiple -> ask_clarification
+                                    
+IMPORTANT (AMBIGUITY HANDLING):
+
+If user expresses cancellation intent but message is vague (e.g. "cancel it", "don't need"):
+
+- If ONLY ONE active task exists:
+  -> cancel_task
+
+- If MULTIPLE active tasks exist:
+  -> ask_clarification
+
+--------------------------------
+PENDING ACTION CONTEXT
+--------------------------------
+
+If system previously asked clarification for cancellation:
+
+Example:
+System: "Do you want to cancel AC, towels, or water?"
+User: "water"
+
+→ [
+  {"action":"cancel_task","category":"fnb","item":"water"}
+]
+
+CRITICAL:
+- DO NOT create_task
+- DO NOT followup_status
+- DO NOT ask again
+- Treat user reply as FINAL selection
 
 --------------------------------
 7. ADD-ON / CONTINUATION
