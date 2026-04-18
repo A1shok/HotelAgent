@@ -11,6 +11,8 @@ from db import SessionLocal, Task
 
 client = OpenAI()
 app = FastAPI()
+# 🔥 GLOBAL MEMORY (per room)
+pending_actions = {}
 
 # -----------------------
 # LLM DECISION ENGINE
@@ -53,11 +55,24 @@ def llm_decide(message, db_tasks, pending_action=None):
     }
     print("🧾 STATE:", json.dumps(structured_state, indent=2))
 
+    pending_context = ""
+
+    if pending_action:
+        pending_context = f"""
+    --------------------------------
+    PENDING ACTION CONTEXT
+    --------------------------------
+    Type: {pending_action.get("type")}
+    Options: {pending_action.get("options")}
+    """
+
     prompt = f"""
 You are a hotel concierge decision engine.
 
 You DO NOT reply to the user.
 You ONLY decide system actions.
+
+{pending_context}
 
 --------------------------------
 CONTEXT (STATE)
@@ -622,7 +637,7 @@ def execute(decision, db, room):
                     db.commit()
                     return t
 
-        return None
+        return "no_active_task"
 
     return None
 
@@ -633,10 +648,10 @@ def execute(decision, db, room):
 
 def generate_response(actions):
 
-    prompt = prompt = f"""
-You are a hotel WhatsApp concierge.
+    prompt = f"""
+You are a premium hotel WhatsApp concierge.
 
-Your job is to generate a short, natural reply to the guest based ONLY on the given structured actions.
+Your job is to generate a short, warm, and professional reply to the guest based ONLY on the given structured actions.
 
 --------------------------------
 INPUT ACTIONS (STRICT JSON)
@@ -644,78 +659,111 @@ INPUT ACTIONS (STRICT JSON)
 {actions}
 
 --------------------------------
-CRITICAL RULES
+TONE & STYLE (VERY IMPORTANT)
 --------------------------------
 
-1. ONLY use information from actions
-   - DO NOT invent anything
-   - DO NOT assume missing details
+- Warm, polite, and human
+- Slightly premium hotel tone (not robotic)
+- Show ownership ("I’ll check", "We’ll arrange")
+- Reassuring and service-oriented
+- WhatsApp-friendly (short and natural)
 
-2. Convert internal categories into guest-friendly language:
+--------------------------------
+RESPONSE RULES
+--------------------------------
 
-   engineering -> "the issue"
-   housekeeping -> "housekeeping"
-   fnb -> "your request"
-   it -> "WiFi"
-   guest_service -> "this"
+1. Keep it SHORT:
+   - 1 sentence preferred (max 12–15 words)
+   - Natural conversational flow
 
-3. Response style:
-   - 1 short sentence (max 12–15 words)
-   - Friendly, human, WhatsApp tone
-   - Maximum 1 emoji
-   - No repetition
+2. Use soft hospitality language:
+   - "right away"
+   - "just now"
+   - "I’ll check"
+   - "on it"
+   - "happy to help"
 
-4. Multi-action handling (VERY IMPORTANT):
+3. NEVER:
+   - Mention "task", "category"
+   - Sound mechanical or robotic
+   - Repeat phrases
 
-   - Combine naturally into ONE sentence
-   - Do NOT repeat "Sending..." twice
-   - Do NOT list categories
+--------------------------------
+EMOJI USAGE (IMPORTANT)
+--------------------------------
 
-   Example:
-   Actions:
-   [
-     {{"action":"created","category":"engineering"}},
-     {{"action":"created","category":"housekeeping"}}
-   ]
+- Use at most ONE emoji (optional, not mandatory)
+- Choose emoji based on context and tone
 
-   Good:
-   "Sending someone to check and housekeeping right away 👍"
+GUIDELINES:
 
-   Bad:
-   "Sending engineering 👍 Sending housekeeping 👍"
+- Service / action → 👍 🙂
+- Follow-up / checking → 🙂
+- Confirmation / completion → 😊 👍
+- Apology / delay → 🙏
+- Clarification → 🙂
+- Info sharing → 😊
+- Issue / complaint → avoid overly cheerful emojis
 
-5. Action mapping:
+- DO NOT force emoji in every response
+- If message is serious → no emoji or use 🙏
 
-   created ->
-     "Sending <mapped phrase>"
+--------------------------------
+CATEGORY MAPPING
+--------------------------------
 
-   escalation ->
-     "Checking <mapped phrase>"
+engineering → "the issue"
+housekeeping → "housekeeping"
+fnb → "your request"
+it → "WiFi"
 
-   completed ->
-     "Glad it's sorted"
+--------------------------------
+ACTION MAPPING (UPGRADED)
+--------------------------------
 
-   cancelled ->
-     "Done, cancelled"
+created →
+- "I’ll have this arranged right away"
+- "On it, we’ll take care of this right away"
+- "Sending this across right away"
 
-   ambiguous ->
-     "Which request do you mean?"
+escalation →
+- "Let me check this for you right away"
+- "I’m checking this now, will update you shortly"
 
-   info ->
-     - Answer directly using query
-     - Example:
-       wifi -> "WiFi password is Hotel_Guest"
-       menu -> "Sharing the menu"
-       breakfast -> "Breakfast is from 7–10 AM"
+completed →
+- "Glad that’s sorted"
+- "Happy to hear it’s fixed"
 
-   ignore ->
-     "Hi 👋 how can I help you?"
+cancelled →
+- "Done, I’ve cancelled that for you"
 
-6. NEVER:
-   - Mention "engineering", "fnb", etc.
-   - Mention system terms like "task"
-   - Invent items like shampoo
-   - Repeat words unnecessarily
+ambiguous →
+- "Could you let me know which request you mean?"
+
+info →
+- wifi → "WiFi password is Hotel_Guest"
+- parking → "Yes, parking is available"
+- menu → "Sharing the menu with you"
+- breakfast → "Breakfast is served from 7–10 AM"
+- no active request → "There’s no active request for that right now"
+
+ignore →
+- "Hi 👋 how can I assist you today?"
+
+--------------------------------
+MULTI-ACTION HANDLING
+--------------------------------
+
+- Combine naturally into ONE sentence
+- Do NOT repeat phrases
+
+Example:
+
+Bad:
+"Sending this 👍 Checking this 👍"
+
+Good:
+"I’ll take care of this and check the other request right away 👍"
 
 --------------------------------
 OUTPUT
@@ -760,16 +808,58 @@ async def whatsapp_webhook(req: Request):
         print("📩", msg)
         
         tasks = db.query(Task).filter(Task.room == room).all()
-        if any(d.get("action") == "ask_clarification" for d in decisions):
-            pending_action = "cancel"
-             
-        decisions = llm_decide(msg, tasks, pending_action)
+        tasks = db.query(Task).filter(Task.room == room).all()
+
+        # 🔥 GET PENDING ACTION FROM MEMORY
+        pending = pending_actions.get(room)
+            
+        decisions = llm_decide(msg, tasks, pending)
         print("🧠 decision:", json.dumps(decisions, indent=2))
 
         decisions = validate(decisions)
+        # 🔥 HANDLE CLARIFICATION MEMORY
+        if any(d.get("action") == "ask_clarification" for d in decisions):
+
+            active_tasks = db.query(Task).filter(
+                Task.room == room,
+                Task.status == "active"
+            ).all()
+        
+            if len(active_tasks) > 1:
+        
+                # 🔥 DETECT TYPE FROM ORIGINAL INTENT (LLM OUTPUT)
+                action_type = "followup"  # default
+        
+                for d in decisions:
+                    if d.get("action") == "cancel_task":
+                        action_type = "cancel"
+                        break
+        
+                pending_actions[room] = {
+                    "type": action_type,
+                    "options": [
+                        {
+                            "category": t.category,
+                            "item": getattr(t, "item", None)
+                        }
+                        for t in active_tasks
+                    ]
+                }
+
+        results = []
 
         for decision in decisions:
-            execute(decision, db, room)
+            result = execute(decision, db, room)
+        
+            if result == "no_active_task":
+            decisions = [{"action": "info_request", "query": "no active request"}]
+                break
+
+        # 🔥 CLEAR pending after successful resolution
+        if room in pending_actions:
+            if not any(d.get("action") == "ask_clarification" for d in decisions):
+                pending_actions.pop(room, None)
+        
         db.query(Task).filter(
             Task.room == room,
             Task.status != "active"
