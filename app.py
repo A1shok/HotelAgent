@@ -11,8 +11,19 @@ from db import SessionLocal, Task
 
 client = OpenAI()
 app = FastAPI()
+
+STAFF_NUMBERS = ["+9198xxxx001", "+9198xxxx002"]
+
 # 🔥 GLOBAL MEMORY (per room)
 pending_actions = {}
+
+# 🔥 STAFF MAPPING (ADD HERE)
+DEPT_MAP = {
+    "engineering": "+9198xxxx001",
+    "housekeeping": "+9198xxxx002",
+    "fnb": "+9198xxxx003",
+    "it": "+9198xxxx004"
+}
 
 # -----------------------
 # LLM DECISION ENGINE
@@ -582,6 +593,9 @@ def execute(decision, db, room):
 
     # CREATE
     if action == "create_task":
+        if t.status == "completed_unverified":
+            t.status = "active"
+            t.priority = "escalated"
         existing = db.query(Task).filter(
             Task.room == room,
             Task.category == category,
@@ -598,11 +612,24 @@ def execute(decision, db, room):
             category=category,
             item=item,  # 🔥 ADDED
             status="active",
+            status="assigned",  # 🔥 changed
             created_at=datetime.utcnow()
         )
+        task.assigned_to = DEPT_MAP.get(category)
+        task.department = category
+
         db.add(task)
         db.flush() 
         db.commit()
+        return task
+
+        # 🔥 NOTIFY (for now print)
+        print(f"""
+        📌 TASK ASSIGNED
+        Room: {room}
+        Item: {item}
+        To: {task.assigned_to}
+        """)
         return task
 
     # COMPLETE
@@ -780,6 +807,57 @@ No JSON. No explanation.
 
     return res.choices[0].message.content.strip()
 
+async def handle_staff(req: Request):
+    db: Session = SessionLocal()
+    resp = MessagingResponse()
+
+    form = await req.form()
+    msg = form.get("Body")
+    phone = form.get("From")
+
+    tasks = db.query(Task).filter(
+        Task.assigned_to == phone,
+        Task.status.in_(["assigned", "active", "completed_unverified"])
+    ).all()
+
+    # ACCEPT TASK
+    if msg == "1" and tasks:
+        task = tasks[0]
+        task.status = "active"
+        db.commit()
+
+        resp.message("Task accepted 👍")
+        return Response(str(resp), media_type="application/xml")
+
+    # LIST TASKS
+    if msg.lower() == "tasks":
+        text = "📋 Tasks:\n"
+        for i, t in enumerate(tasks):
+            text += f"{i+1}. Room {t.room} - {t.item}\n"
+
+        resp.message(text)
+        return Response(str(resp), media_type="application/xml")
+
+    # COMPLETE TASK
+    if msg.isdigit():
+        idx = int(msg) - 1
+
+        if 0 <= idx < len(tasks):
+            task = tasks[idx]
+
+            task.status = "completed_unverified"
+            db.commit()
+
+            # notify guest
+            # (you’ll map room → phone later)
+            print(f"Ask guest confirmation for {task.room}")
+
+            resp.message("Marked done 👍")
+            return Response(str(resp), media_type="application/xml")
+
+    resp.message("Invalid input")
+    return Response(str(resp), media_type="application/xml")
+
 
 # -----------------------
 # WEBHOOK
@@ -799,6 +877,10 @@ async def whatsapp_webhook(req: Request):
         msg = form.get("Body")
         phone = form.get("From")
 
+        # 🔥 STAFF FLOW (ADD HERE)
+        if phone in STAFF_NUMBERS:
+            return await handle_staff(req)
+
         room = phone[-3:]
 
         # TEMP CLEAN DB (remove after testing)
@@ -807,7 +889,6 @@ async def whatsapp_webhook(req: Request):
 
         print("📩", msg)
         
-        tasks = db.query(Task).filter(Task.room == room).all()
         tasks = db.query(Task).filter(Task.room == room).all()
 
         # 🔥 GET PENDING ACTION FROM MEMORY
@@ -852,7 +933,7 @@ async def whatsapp_webhook(req: Request):
             result = execute(decision, db, room)
         
             if result == "no_active_task":
-            decisions = [{"action": "info_request", "query": "no active request"}]
+                decisions = [{"action": "info_request", "query": "no active request"}]
                 break
 
         # 🔥 CLEAR pending after successful resolution
