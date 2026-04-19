@@ -579,19 +579,32 @@ def execute(decision, db, room):
 
     active_tasks = db.query(Task).filter(
         Task.room == room,
-        Task.status == "active"
+        Task.status.in_(["assigned", "active", "completed_unverified"])
     ).all()
 
     # RESET SESSION
     if action == "reset_session":
         db.query(Task).filter(
             Task.room == room,
-            Task.status == "active"
+            Task.status.in_(["assigned", "active"])
         ).update({"status": "completed"})
         db.commit()
         return None
 
     # CREATE
+    # 🔥 REOPEN LOGIC (FIXED)
+    recent_tasks = db.query(Task).filter(
+        Task.room == room,
+        Task.category == category,
+        Task.item == item
+    ).all()
+    
+    for t in recent_tasks:
+        if t.status == "completed_unverified":
+            t.status = "active"
+            t.priority = "escalated"
+            db.commit()
+            return t
     if action == "create_task":
         if t.status == "completed_unverified":
             t.status = "active"
@@ -611,7 +624,6 @@ def execute(decision, db, room):
             room=room,
             category=category,
             item=item,  # 🔥 ADDED
-            status="active",
             status="assigned",  # 🔥 changed
             created_at=datetime.utcnow()
         )
@@ -621,7 +633,6 @@ def execute(decision, db, room):
         db.add(task)
         db.flush() 
         db.commit()
-        return task
 
         # 🔥 NOTIFY (for now print)
         print(f"""
@@ -634,20 +645,16 @@ def execute(decision, db, room):
 
     # COMPLETE
     if action == "mark_complete":
-        if len(active_tasks) == 1:
-            task = active_tasks[0]
-            task.status = "completed"
-            db.commit()
-            return task
 
-        if category:
-            for t in active_tasks:
-                if t.category.lower() == category and (item is None or getattr(t, "item", None) == item):  # 🔥 UPDATED
-                    t.status = "completed"
-                    return t
+    # 🔥 ONLY allow final completion from completed_unverified
+    for t in active_tasks:
+        if t.status == "completed_unverified":
+            t.status = "completed"
             db.commit()
+            return t
 
-        return None
+    # 🔥 If no unverified task found, do nothing
+    return None
 
     # CANCEL
     if action == "cancel_task":
@@ -821,7 +828,7 @@ async def handle_staff(req: Request):
     ).all()
 
     # ACCEPT TASK
-    if msg == "1" and tasks:
+    if msg == "1" and len(tasks) == 1:
         task = tasks[0]
         task.status = "active"
         db.commit()
@@ -874,7 +881,7 @@ async def whatsapp_webhook(req: Request):
         print("STEP 1: message received")
 
         form = await req.form()
-        msg = form.get("Body")
+        msg = (form.get("Body") or "").strip()
         phone = form.get("From")
 
         # 🔥 STAFF FLOW (ADD HERE)
@@ -903,7 +910,7 @@ async def whatsapp_webhook(req: Request):
 
             active_tasks = db.query(Task).filter(
                 Task.room == room,
-                Task.status == "active"
+                Task.status.in_(["assigned", "active", "completed_unverified"])
             ).all()
         
             if len(active_tasks) > 1:
