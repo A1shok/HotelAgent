@@ -17,5 +17,14 @@ class Task(Base):
     room = Column(String)
     category = Column(String)
     item = Column(String, nullable=True)
-    status = Column(String)
+
+    status = Column(String)  
+    # active | assigned | completed | cancelled | completed_unverified
+
+    assigned_to = Column(String, nullable=True)
+    department = Column(String)
+
+    priority = Column(String, default="normal")
+
     created_at = Column(DateTime)
+    updated_at = Column(DateTime)
