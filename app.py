@@ -17,6 +17,8 @@ STAFF_NUMBERS = ["+9198xxxx001", "+9198xxxx002"]
 # 🔥 GLOBAL MEMORY (per room)
 pending_actions = {}
 
+room_to_phone = {}
+
 # 🔥 STAFF MAPPING (ADD HERE)
 DEPT_MAP = {
     "engineering": "+9198xxxx001",
@@ -50,6 +52,13 @@ def llm_decide(message, db_tasks, pending_action=None):
             }
             for t in db_tasks if t.status == "active"
         ],
+       "pending_confirmations": [   # 🔥 ADD THIS HERE
+            {
+                "category": t.category,
+                "item": getattr(t, "item", None)
+            }
+            for t in db_tasks if t.status == "completed_unverified"
+         ],
         "recent_tasks": [
             {
                 "category": t.category,
@@ -180,6 +189,43 @@ AVAILABLE ACTIONS
 - info_request(query)
 - ask_clarification
 - ignore
+
+--------------------------------
+CONFIRMATION HANDLING (CRITICAL)
+--------------------------------
+
+If there are pending_confirmations:
+
+User message may be:
+
+1. Confirmation YES:
+   "yes", "done", "fixed", "ok", "ho gaya"
+
+→ mark_complete (ONLY for that task)
+
+2. Confirmation NO / ISSUE:
+   "no", "still not working", "again problem", "not fixed"
+
+→ create_task (REOPEN same category + item)
+
+3. Mixed message:
+   "AC fixed but towels not received"
+
+→ [
+  {"action":"mark_complete","category":"engineering","item":"ac"},
+  {"action":"followup_status","category":"housekeeping","item":"towels"}
+]
+
+4. If unclear which task:
+→ ask_clarification
+
+CRITICAL:
+- Confirmation applies ONLY to pending_confirmations
+- NEVER assume all tasks are confirmed
+- Match item if mentioned
+- If vague:
+  - one pending → use it
+  - multiple → ask_clarification
 
 --------------------------------
 1. MULTI-INTENT (CORE)
@@ -591,70 +637,73 @@ def execute(decision, db, room):
         db.commit()
         return None
 
-    # CREATE
-    # 🔥 REOPEN LOGIC (FIXED)
+# -----------------------
+# CREATE
+# -----------------------
+if action == "create_task":
+
+    # 🔥 REOPEN LOGIC (ONLY HERE)
     recent_tasks = db.query(Task).filter(
         Task.room == room,
         Task.category == category,
         Task.item == item
     ).all()
-    
+
     for t in recent_tasks:
         if t.status == "completed_unverified":
             t.status = "active"
             t.priority = "escalated"
             db.commit()
             return t
-    if action == "create_task":
-        if t.status == "completed_unverified":
-            t.status = "active"
-            t.priority = "escalated"
-        existing = db.query(Task).filter(
-            Task.room == room,
-            Task.category == category,
-            Task.item == item,
-            Task.status == "active"
-        ).first()
 
-        if existing:
-            return existing
+    # 🔥 DUPLICATE PREVENTION
+    existing = db.query(Task).filter(
+        Task.room == room,
+        Task.category == category,
+        Task.item == item,
+        Task.status.in_(["assigned", "active"])
+    ).first()
 
-        task = Task(
-            id=str(uuid.uuid4()),
-            room=room,
-            category=category,
-            item=item,  # 🔥 ADDED
-            status="assigned",  # 🔥 changed
-            created_at=datetime.utcnow()
-        )
-        task.assigned_to = DEPT_MAP.get(category)
-        task.department = category
+    if existing:
+        return existing
 
-        db.add(task)
-        db.flush() 
-        db.commit()
+    # 🔥 CREATE NEW
+    task = Task(
+        id=str(uuid.uuid4()),
+        room=room,
+        category=category,
+        item=item,
+        status="assigned",
+        created_at=datetime.utcnow()
+    )
 
-        # 🔥 NOTIFY (for now print)
-        print(f"""
-        📌 TASK ASSIGNED
-        Room: {room}
-        Item: {item}
-        To: {task.assigned_to}
-        """)
-        return task
+    task.assigned_to = DEPT_MAP.get(category)
+    task.department = category
+
+    db.add(task)
+    db.commit()
+
+    print(f"""
+📌 TASK ASSIGNED
+Room: {room}
+Item: {item}
+To: {task.assigned_to}
+""")
+
+    return task
 
     # COMPLETE
     if action == "mark_complete":
 
-    # 🔥 ONLY allow final completion from completed_unverified
-    for t in active_tasks:
-        if t.status == "completed_unverified":
-            t.status = "completed"
-            db.commit()
-            return t
-
-    # 🔥 If no unverified task found, do nothing
-    return None
+        # 🔥 ONLY allow final completion from completed_unverified
+        for t in active_tasks:
+            if t.status == "completed_unverified":
+                t.status = "completed"
+                db.commit()
+                return t
+    
+        # 🔥 If no unverified task found, do nothing
+        return None
 
     # CANCEL
     if action == "cancel_task":
@@ -857,7 +906,13 @@ async def handle_staff(req: Request):
 
             # notify guest
             # (you’ll map room → phone later)
-            print(f"Ask guest confirmation for {task.room}")
+            guest_phone = room_to_phone.get(task.room)
+
+            if guest_phone:
+                print(f"""
+            📩 MESSAGE TO GUEST ({guest_phone})
+            Has the {task.item} issue been resolved?
+            """)
 
             resp.message("Marked done 👍")
             return Response(str(resp), media_type="application/xml")
@@ -876,6 +931,7 @@ async def whatsapp_webhook(req: Request):
     resp = MessagingResponse()
     db: Session = SessionLocal()
     decisions = [{"action": "ask_clarification"}]
+    room_to_phone[room] = phone
 
     try:
         print("STEP 1: message received")
