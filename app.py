@@ -637,58 +637,58 @@ def execute(decision, db, room):
         db.commit()
         return None
 
-# -----------------------
-# CREATE
-# -----------------------
-if action == "create_task":
-
-    # 🔥 REOPEN LOGIC (ONLY HERE)
-    recent_tasks = db.query(Task).filter(
-        Task.room == room,
-        Task.category == category,
-        Task.item == item
-    ).all()
-
-    for t in recent_tasks:
-        if t.status == "completed_unverified":
-            t.status = "active"
-            t.priority = "escalated"
-            db.commit()
-            return t
-
-    # 🔥 DUPLICATE PREVENTION
-    existing = db.query(Task).filter(
-        Task.room == room,
-        Task.category == category,
-        Task.item == item,
-        Task.status.in_(["assigned", "active"])
-    ).first()
-
-    if existing:
-        return existing
-
-    # 🔥 CREATE NEW
-    task = Task(
-        id=str(uuid.uuid4()),
-        room=room,
-        category=category,
-        item=item,
-        status="assigned",
-        created_at=datetime.utcnow()
-    )
-
-    task.assigned_to = DEPT_MAP.get(category)
-    task.department = category
-
-    db.add(task)
-    db.commit()
-
-    print(f"""
-📌 TASK ASSIGNED
-Room: {room}
-Item: {item}
-To: {task.assigned_to}
-""")
+    # -----------------------
+    # CREATE
+    # -----------------------
+    if action == "create_task":
+    
+        # 🔥 REOPEN LOGIC (ONLY HERE)
+        recent_tasks = db.query(Task).filter(
+            Task.room == room,
+            Task.category == category,
+            Task.item == item
+        ).all()
+    
+        for t in recent_tasks:
+            if t.status == "completed_unverified":
+                t.status = "active"
+                t.priority = "escalated"
+                db.commit()
+                return t
+    
+        # 🔥 DUPLICATE PREVENTION
+        existing = db.query(Task).filter(
+            Task.room == room,
+            Task.category == category,
+            Task.item == item,
+            Task.status.in_(["assigned", "active"])
+        ).first()
+    
+        if existing:
+            return existing
+    
+        # 🔥 CREATE NEW
+        task = Task(
+            id=str(uuid.uuid4()),
+            room=room,
+            category=category,
+            item=item,
+            status="assigned",
+            created_at=datetime.utcnow()
+        )
+    
+        task.assigned_to = DEPT_MAP.get(category)
+        task.department = category
+    
+        db.add(task)
+        db.commit()
+    
+        print(f"""
+    📌 TASK ASSIGNED
+    Room: {room}
+    Item: {item}
+    To: {task.assigned_to}
+    """)
 
     return task
 
@@ -902,6 +902,7 @@ async def handle_staff(req: Request):
             task = tasks[idx]
 
             task.status = "completed_unverified"
+            task.confirmation_required = True
             db.commit()
 
             # notify guest
@@ -931,7 +932,6 @@ async def whatsapp_webhook(req: Request):
     resp = MessagingResponse()
     db: Session = SessionLocal()
     decisions = [{"action": "ask_clarification"}]
-    room_to_phone[room] = phone
 
     try:
         print("STEP 1: message received")
@@ -945,6 +945,7 @@ async def whatsapp_webhook(req: Request):
             return await handle_staff(req)
 
         room = phone[-3:]
+        room_to_phone[room] = phone
 
         # TEMP CLEAN DB (remove after testing)
         #db.query(Task).delete()
@@ -1004,10 +1005,10 @@ async def whatsapp_webhook(req: Request):
             if not any(d.get("action") == "ask_clarification" for d in decisions):
                 pending_actions.pop(room, None)
         
-        db.query(Task).filter(
-            Task.room == room,
-            Task.status != "active"
-        ).delete()
+        #db.query(Task).filter(
+        #    Task.room == room,
+        #   Task.status != "active"
+        #).delete()
         db.commit()
         tasks_after = db.query(Task).filter(Task.room == room).all()
         print("📦 DB AFTER WRITE:", [
