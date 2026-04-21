@@ -904,15 +904,18 @@ async def handle_staff(req: Request):
 
     tasks = db.query(Task).filter(
         Task.assigned_to == phone,
-        working_tasks = db.query(Task).filter(
-            Task.assigned_to == phone,
-            Task.status.in_(["assigned", "active"])
-        ).all()
-
-        review_tasks = db.query(Task).filter(
-            Task.assigned_to == phone,
-            Task.status == "completed_unverified"
-        ).all()
+        Task.status.in_(["assigned", "active", "completed_unverified"])
+    ).all()
+    
+    working_tasks = db.query(Task).filter(
+        Task.assigned_to == phone,
+        Task.status.in_(["assigned", "active"])
+    ).all()
+    
+    review_tasks = db.query(Task).filter(
+        Task.assigned_to == phone,
+        Task.status == "completed_unverified"
+    ).all()
 
     # ACCEPT TASK
     if msg == "1" and len(tasks) == 1:
@@ -1006,7 +1009,7 @@ async def whatsapp_webhook(req: Request):
 
             active_tasks = db.query(Task).filter(
                 Task.room == room,
-                Task.status.in_(["assigned", "active", "completed_unverified"])
+                Task.status.in_(["assigned", "active"])
             ).all()
         
             if len(active_tasks) > 1:
