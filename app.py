@@ -57,7 +57,7 @@ def llm_decide(message, db_tasks, pending_action=None):
                 "category": t.category,
                 "item": getattr(t, "item", None)
             }
-            for t in db tasks
+            for t in db_tasks
             if t.status == "completed_unverified" and t.confirmation_required
          ],
         "recent_tasks": [
@@ -656,12 +656,15 @@ def execute(decision, db, room):
         ).all()
     
         for t in recent_tasks:
-            if t.status in ["completed_unverified", "completed"]:
+            if (
+                t.status in ["completed_unverified", "completed"] and
+                t.category == category and
+                t.item == item
+            ):
                 t.status = "active"
                 t.priority = "escalated"
                 t.confirmation_required = False
                 t.updated_at = datetime.utcnow()
-                updated_at=datetime.utcnow()
                 db.commit()
                 return t
     
@@ -683,7 +686,8 @@ def execute(decision, db, room):
             category=category,
             item=item,
             status="assigned",
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
         )
     
         task.assigned_to = DEPT_MAP.get(category)
@@ -705,11 +709,12 @@ def execute(decision, db, room):
     if action == "mark_complete":
 
         # 🔥 ONLY allow final completion from completed_unverified
+
+        # 🎯 STRICT MATCH FIRST (category + item)
         for t in unverified_tasks:
             if (
-                t.status == "completed_unverified" and
-                (category is None or t.category == category) and
-                (item is None or getattr(t, "item", None) == item)
+                t.category == category and
+                getattr(t, "item", None) == item
             ):
                 t.status = "completed"
                 t.confirmation_required = False
@@ -717,7 +722,16 @@ def execute(decision, db, room):
                 db.commit()
                 return t
     
-        # 🔥 If no unverified task found, do nothing
+        # 🎯 FALLBACK (ONLY if ONE unverified task exists)
+        if len(unverified_tasks) == 1:
+            t = unverified_tasks[0]
+            t.status = "completed"
+            t.confirmation_required = False
+            t.updated_at = datetime.utcnow()
+            db.commit()
+            return t
+    
+        # 🎯 OTHERWISE → DO NOTHING (LLM should have asked clarification)
         return None
 
     # CANCEL
@@ -733,7 +747,7 @@ def execute(decision, db, room):
             for t in active_tasks:
                 if t.category.lower() == category and (item is None or getattr(t, "item", None) == item):  # 🔥 UPDATED
                     t.status = "cancelled"
-                    task.updated_at = datetime.utcnow()
+                    t.updated_at = datetime.utcnow()
                     db.commit()
                     return t
 
@@ -890,8 +904,15 @@ async def handle_staff(req: Request):
 
     tasks = db.query(Task).filter(
         Task.assigned_to == phone,
-        Task.status.in_(["assigned", "active", "completed_unverified"])
-    ).all()
+        working_tasks = db.query(Task).filter(
+            Task.assigned_to == phone,
+            Task.status.in_(["assigned", "active"])
+        ).all()
+
+        review_tasks = db.query(Task).filter(
+            Task.assigned_to == phone,
+            Task.status == "completed_unverified"
+        ).all()
 
     # ACCEPT TASK
     if msg == "1" and len(tasks) == 1:
