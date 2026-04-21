@@ -57,7 +57,7 @@ def llm_decide(message, db_tasks, pending_action=None):
                 "category": t.category,
                 "item": getattr(t, "item", None)
             }
-            for t in db_tasks if t.status == "completed_unverified"
+            if t.status == "completed_unverified" and t.confirmation_required
          ],
         "recent_tasks": [
             {
@@ -653,6 +653,7 @@ def execute(decision, db, room):
             if t.status == "completed_unverified":
                 t.status = "active"
                 t.priority = "escalated"
+                t.confirmation_required = False
                 db.commit()
                 return t
     
@@ -690,15 +691,20 @@ def execute(decision, db, room):
     To: {task.assigned_to}
     """)
 
-    return task
+        return task
 
     # COMPLETE
     if action == "mark_complete":
 
         # 🔥 ONLY allow final completion from completed_unverified
         for t in active_tasks:
-            if t.status == "completed_unverified":
+            if (
+                t.status == "completed_unverified" and
+                (category is None or t.category == category) and
+                (item is None or getattr(t, "item", None) == item)
+            ):
                 t.status = "completed"
+                t.confirmation_required = False
                 db.commit()
                 return t
     
@@ -1005,10 +1011,6 @@ async def whatsapp_webhook(req: Request):
             if not any(d.get("action") == "ask_clarification" for d in decisions):
                 pending_actions.pop(room, None)
         
-        #db.query(Task).filter(
-        #    Task.room == room,
-        #   Task.status != "active"
-        #).delete()
         db.commit()
         tasks_after = db.query(Task).filter(Task.room == room).all()
         print("📦 DB AFTER WRITE:", [
