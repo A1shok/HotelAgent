@@ -26,6 +26,13 @@ DEPT_MAP = {
     "fnb": "+9198xxxx003",
     "it": "+9198xxxx004"
 }
+# 🔥 SLA RULES (ADD HERE)
+SLA_RULES = {
+    "engineering": 10,
+    "housekeeping": 5,
+    "fnb": 3,
+    "it": 5
+}
 
 # -----------------------
 # LLM DECISION ENGINE
@@ -610,6 +617,49 @@ def decision_to_actions(decisions):
 
     return actions
 
+# -----------------------
+# SLA ESCALATION ENGINE
+# -----------------------
+
+def apply_sla_escalation(db: Session):
+    now = datetime.utcnow()
+
+    tasks = db.query(Task).filter(
+        Task.status.in_(["assigned", "active"])
+    ).all()
+
+    for t in tasks:
+        if not t.created_at or not t.category:
+            continue
+
+        sla_minutes = SLA_RULES.get(t.category, 10)
+        elapsed = (now - t.created_at).total_seconds() / 60
+
+        if elapsed > sla_minutes:
+
+            # 🔥 Avoid repeated escalation
+            if getattr(t, "priority", None) != "escalated":
+
+                t.priority = "escalated"
+                t.updated_at = now
+
+                print(f"""
+🔥 SLA ESCALATION
+Room: {t.room}
+Item: {t.item}
+Dept: {t.category}
+Time: {round(elapsed,1)} min (SLA {sla_minutes})
+""")
+
+                # 🔥 Notify staff
+                if t.assigned_to:
+                    print(f"""
+📩 ESCALATION MESSAGE TO STAFF ({t.assigned_to})
+URGENT: Room {t.room} - {t.item} delayed. Please prioritize.
+""")
+
+    db.commit()
+
 
 # -----------------------
 # EXECUTION ENGINE
@@ -973,6 +1023,8 @@ async def whatsapp_webhook(req: Request):
 
     resp = MessagingResponse()
     db: Session = SessionLocal()
+    # 🔥 ADD THIS EXACTLY HERE
+    apply_sla_escalation(db)
     decisions = [{"action": "ask_clarification"}]
 
     try:
