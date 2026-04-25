@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from twilio.twiml.messaging_response import MessagingResponse
+from twilio.rest import Client
 from openai import OpenAI
 import json
 import uuid
