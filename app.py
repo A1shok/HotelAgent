@@ -993,6 +993,12 @@ INPUT ACTIONS (STRICT JSON)
 --------------------------------
 {actions}
 
+Each action may include:
+- category
+- item (specific object like AC, towels, WiFi)
+
+You MUST use item in the response when available.
+
 --------------------------------
 CONTEXT SIGNALS
 --------------------------------
@@ -1002,6 +1008,8 @@ Interpret signals:
 - has_delay → use apology tone
 - has_repeat → add ownership ("personally")
 - has_overload → reassure guest
+IMPORTANT:
+- Do NOT apply delay/repeat tone for pure info requests
 
 --------------------------------
 TONE & STYLE (VERY IMPORTANT)
