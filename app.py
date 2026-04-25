@@ -811,10 +811,9 @@ def execute(decision, db, room):
 def generate_signals(db, room):
 
     tasks = db.query(Task).filter(Task.room == room).all()
-
     signals = []
 
-    # 🔁 REPEAT ISSUE (same item in same room)
+    # 🔁 REPEAT ISSUE
     item_count = {}
     for t in tasks:
         key = (t.room, getattr(t, "item", None))
@@ -826,11 +825,11 @@ def generate_signals(db, room):
                 "type": "repeat_issue",
                 "room": room_id,
                 "item": item,
-                "count": count
-                "severity": min(count * 10, 50)  # 🔥 ADD THIS
+                "count": count,
+                "severity": min(count * 10, 50)
             })
 
-    # ⏱ DELAY SIGNAL
+    # ⏱ DELAY
     for t in tasks:
         if t.status in ["assigned", "active"]:
             minutes = (datetime.utcnow() - t.created_at).total_seconds() / 60
@@ -840,7 +839,7 @@ def generate_signals(db, room):
                     "room": t.room,
                     "item": t.item,
                     "minutes": int(minutes),
-                    "owner": t.assigned_to
+                    "owner": t.assigned_to,
                     "severity": min(int(minutes), 30)
                 })
 
@@ -864,6 +863,13 @@ def generate_signals(db, room):
 # ⚡ SCORING ENGINE
 # -----------------------
 
+ESCALATION_RULES = {
+    "engineering": 40,
+    "housekeeping": 30,
+    "fnb": 25,
+    "it": 30
+}
+
 def score_tasks(db, room):
 
     tasks = db.query(Task).filter(
@@ -878,50 +884,44 @@ def score_tasks(db, room):
     for t in tasks:
 
         score = 0
-
         minutes = (datetime.utcnow() - t.created_at).total_seconds() / 60
-        if score > 50 and getattr(t, "priority", None) != "escalated":
-        t.priority = "escalated"
-        t.updated_at = datetime.utcnow()
-        
-        # ⏱ Base urgency    
+
+        # ⏱ Base urgency
         score += minutes * 1.5
-        
-        # 🔥 SLA escalation
+
+        # 🔥 SLA escalation boost
         if getattr(t, "priority", None) == "escalated":
             score += 25
-        
+
         # 🔁 Repeat issue
         for s in signals:
             if s["type"] == "repeat_issue" and s["item"] == t.item:
-                score += s.get("severity", 20)
-        
+                score += s["severity"]
+
         # 👤 Staff overload
         for s in signals:
             if s["type"] == "staff_overload" and s["staff"] == t.assigned_to:
                 score += 10
-        
+
         # 🧠 Category importance
         if t.category == "engineering":
             score += 10
 
-        # 🔁 Repeat issue boost
-        for s in signals:
-            if s["type"] == "repeat_issue" and s["item"] == t.item:
-                score += 30
+        # 🔥 AUTO ESCALATION (correct placement)
+        threshold = ESCALATION_RULES.get(t.category, 50)
 
-        # 👤 Staff overload boost
-        for s in signals:
-            if s["type"] == "staff_overload" and s["staff"] == t.assigned_to:
-                score += 10
+        if score > threshold and getattr(t, "priority", None) != "escalated":
+            t.priority = "escalated"
+            t.updated_at = datetime.utcnow()
 
         scored.append({
             "task": t,
             "score": score,
             "minutes": int(minutes)
         })
+
     db.commit()
-    # 🔥 highest score first
+
     scored.sort(key=lambda x: x["score"], reverse=True)
 
     return scored, signals
