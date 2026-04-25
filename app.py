@@ -827,6 +827,7 @@ def generate_signals(db, room):
                 "room": room_id,
                 "item": item,
                 "count": count
+                "severity": min(count * 10, 50)  # 🔥 ADD THIS
             })
 
     # ⏱ DELAY SIGNAL
@@ -840,6 +841,7 @@ def generate_signals(db, room):
                     "item": t.item,
                     "minutes": int(minutes),
                     "owner": t.assigned_to
+                    "severity": min(int(minutes), 30)
                 })
 
     # 👤 STAFF LOAD
@@ -877,13 +879,31 @@ def score_tasks(db, room):
 
         score = 0
 
-        # ⏱ Time weight
         minutes = (datetime.utcnow() - t.created_at).total_seconds() / 60
-        score += minutes
-
-        # 🔥 Escalation weight
+        if score > 50 and getattr(t, "priority", None) != "escalated":
+        t.priority = "escalated"
+        t.updated_at = datetime.utcnow()
+        
+        # ⏱ Base urgency    
+        score += minutes * 1.5
+        
+        # 🔥 SLA escalation
         if getattr(t, "priority", None) == "escalated":
-            score += 20
+            score += 25
+        
+        # 🔁 Repeat issue
+        for s in signals:
+            if s["type"] == "repeat_issue" and s["item"] == t.item:
+                score += s.get("severity", 20)
+        
+        # 👤 Staff overload
+        for s in signals:
+            if s["type"] == "staff_overload" and s["staff"] == t.assigned_to:
+                score += 10
+        
+        # 🧠 Category importance
+        if t.category == "engineering":
+            score += 10
 
         # 🔁 Repeat issue boost
         for s in signals:
@@ -900,12 +920,37 @@ def score_tasks(db, room):
             "score": score,
             "minutes": int(minutes)
         })
-
+    db.commit()
     # 🔥 highest score first
     scored.sort(key=lambda x: x["score"], reverse=True)
 
     return scored, signals
 
+# -----------------------
+# 🌍 GLOBAL SIGNALS
+# -----------------------
+
+def global_signals(db):
+
+    tasks = db.query(Task).all()
+
+    dept_count = {}
+
+    for t in tasks:
+        if t.status in ["assigned", "active"]:
+            dept_count[t.category] = dept_count.get(t.category, 0) + 1
+
+    signals = []
+
+    for dept, count in dept_count.items():
+        if count >= 5:
+            signals.append({
+                "type": "department_spike",
+                "department": dept,
+                "count": count
+            })
+
+    return signals
 
 # -----------------------
 # RESPONSE ENGINE
@@ -1206,6 +1251,9 @@ async def whatsapp_webhook(req: Request):
         # -----------------------
         
         scored_tasks, signals = score_tasks(db, room)
+        global_sig = global_signals(db)
+
+        print("🌍 GLOBAL SIGNALS:", global_sig)
         
         if scored_tasks:
             top = scored_tasks[0]
@@ -1241,3 +1289,31 @@ async def whatsapp_webhook(req: Request):
         db.close()
 
     return Response(content=str(resp), media_type="application/xml")
+
+# -----------------------
+# 🚀 V3 DECISION API
+# -----------------------
+
+@app.get("/v3/decision/{room}")
+def get_decision(room: str):
+
+    db = SessionLocal()
+
+    scored, signals = score_tasks(db, room)
+    global_sig = global_signals(db)
+
+    if not scored:
+        return {"status": "ok"}
+
+    top = scored[0]["task"]
+
+    return {
+        "hero": {
+            "room": top.room,
+            "item": top.item,
+            "minutes": scored[0]["minutes"],
+            "owner": top.assigned_to
+        },
+        "signals": signals,
+        "global_signals": global_sig
+    }
