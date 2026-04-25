@@ -609,6 +609,9 @@ def decision_to_actions(decisions):
 
         if decision.get("category"):
             obj["category"] = decision.get("category").lower()
+            
+        if decision.get("item"):
+            obj["item"] = decision.get("item")
 
         if decision.get("query"):
             obj["query"] = decision.get("query")
@@ -783,6 +786,28 @@ def execute(decision, db, room):
     
         # 🎯 OTHERWISE → DO NOTHING (LLM should have asked clarification)
         return None
+        
+    # 🔥 FOLLOW-UP SAFETY NET (ADD HERE)
+    if action == "followup_status":
+        query = db.query(Task).filter(
+            Task.room == room,
+            Task.category == category,
+            Task.status.in_(["assigned", "active"])
+        )
+    
+        if item:
+            query = query.filter(Task.item == item)
+    
+        existing = query.first()
+    
+        if not existing:
+            return execute(
+                {"action": "create_task", "category": category, "item": item},
+                db,
+                room
+            )
+    
+        return existing
 
     # CANCEL
     if action == "cancel_task":
@@ -956,7 +981,7 @@ def global_signals(db):
 # RESPONSE ENGINE
 # -----------------------
 
-def generate_response(actions):
+def generate_response(actions, signals):
 
     prompt = f"""
 You are a premium hotel WhatsApp concierge.
@@ -967,6 +992,16 @@ Your job is to generate a short, warm, and professional reply to the guest based
 INPUT ACTIONS (STRICT JSON)
 --------------------------------
 {actions}
+
+--------------------------------
+CONTEXT SIGNALS
+--------------------------------
+{signals}
+
+Interpret signals:
+- has_delay → use apology tone
+- has_repeat → add ownership ("personally")
+- has_overload → reassure guest
 
 --------------------------------
 TONE & STYLE (VERY IMPORTANT)
@@ -1157,6 +1192,11 @@ Example:
 "I’ll check the AC right away"
 NOT:
 "I’ll check the issue"
+CRITICAL:
+- ALWAYS prefer item over generic words
+-If item exists in actions:
+→ You MUST explicitly mention it in the response
+- Only fallback to generic if item missing
 
 --------------------------------
 IGNORE HANDLING (STRICT)
@@ -1358,6 +1398,11 @@ async def whatsapp_webhook(req: Request):
         global_sig = global_signals(db)
 
         print("🌍 GLOBAL SIGNALS:", global_sig)
+        signal_summary = {
+            "has_delay": any(s["type"] == "delay" for s in signals),
+            "has_repeat": any(s["type"] == "repeat_issue" for s in signals),
+            "has_overload": any(s["type"] == "staff_overload" for s in signals)
+        }
         
         if scored_tasks:
             top = scored_tasks[0]
@@ -1379,7 +1424,11 @@ async def whatsapp_webhook(req: Request):
 
         all_actions = decision_to_actions(decisions)
 
-        reply = generate_response(all_actions)
+        # 🔥 IGNORE HANDLING (ADD HERE)
+        if all_actions and all(a["action"] == "ignore" for a in all_actions):
+            return Response("", media_type="application/xml")
+
+        reply = generate_response(all_actions, signal_summary)
 
         print("💬 reply:", reply)
 
