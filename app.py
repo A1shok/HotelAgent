@@ -804,6 +804,107 @@ def execute(decision, db, room):
         return "no_active_task"
 
     return None
+# -----------------------
+# 🧠 SIGNAL ENGINE (V3)
+# -----------------------
+
+def generate_signals(db, room):
+
+    tasks = db.query(Task).filter(Task.room == room).all()
+
+    signals = []
+
+    # 🔁 REPEAT ISSUE (same item in same room)
+    item_count = {}
+    for t in tasks:
+        key = (t.room, getattr(t, "item", None))
+        item_count[key] = item_count.get(key, 0) + 1
+
+    for (room_id, item), count in item_count.items():
+        if item and count >= 2:
+            signals.append({
+                "type": "repeat_issue",
+                "room": room_id,
+                "item": item,
+                "count": count
+            })
+
+    # ⏱ DELAY SIGNAL
+    for t in tasks:
+        if t.status in ["assigned", "active"]:
+            minutes = (datetime.utcnow() - t.created_at).total_seconds() / 60
+            if minutes > 10:
+                signals.append({
+                    "type": "delay",
+                    "room": t.room,
+                    "item": t.item,
+                    "minutes": int(minutes),
+                    "owner": t.assigned_to
+                })
+
+    # 👤 STAFF LOAD
+    staff_load = {}
+    for t in tasks:
+        if t.status in ["assigned", "active"]:
+            staff_load[t.assigned_to] = staff_load.get(t.assigned_to, 0) + 1
+
+    for staff, count in staff_load.items():
+        if count >= 3:
+            signals.append({
+                "type": "staff_overload",
+                "staff": staff,
+                "count": count
+            })
+
+    return signals
+
+# -----------------------
+# ⚡ SCORING ENGINE
+# -----------------------
+
+def score_tasks(db, room):
+
+    tasks = db.query(Task).filter(
+        Task.room == room,
+        Task.status.in_(["assigned", "active"])
+    ).all()
+
+    signals = generate_signals(db, room)
+
+    scored = []
+
+    for t in tasks:
+
+        score = 0
+
+        # ⏱ Time weight
+        minutes = (datetime.utcnow() - t.created_at).total_seconds() / 60
+        score += minutes
+
+        # 🔥 Escalation weight
+        if getattr(t, "priority", None) == "escalated":
+            score += 20
+
+        # 🔁 Repeat issue boost
+        for s in signals:
+            if s["type"] == "repeat_issue" and s["item"] == t.item:
+                score += 30
+
+        # 👤 Staff overload boost
+        for s in signals:
+            if s["type"] == "staff_overload" and s["staff"] == t.assigned_to:
+                score += 10
+
+        scored.append({
+            "task": t,
+            "score": score,
+            "minutes": int(minutes)
+        })
+
+    # 🔥 highest score first
+    scored.sort(key=lambda x: x["score"], reverse=True)
+
+    return scored, signals
 
 
 # -----------------------
@@ -1100,6 +1201,24 @@ async def whatsapp_webhook(req: Request):
                 pending_actions.pop(room, None)
         
         db.commit()
+        # -----------------------
+        # 🧠 V3 INTELLIGENCE OUTPUT
+        # -----------------------
+        
+        scored_tasks, signals = score_tasks(db, room)
+        
+        if scored_tasks:
+            top = scored_tasks[0]
+        
+            print(f"""
+        🔥 HERO DECISION
+        Room: {top['task'].room}
+        Item: {top['task'].item}
+        Score: {top['score']}
+        Minutes: {top['minutes']}
+        """)
+        
+        print("🧠 SIGNALS:", signals)
         tasks_after = db.query(Task).filter(Task.room == room).all()
         print("📦 DB AFTER WRITE:", [
             {"category": t.category, "item": getattr(t, "item", None)}
