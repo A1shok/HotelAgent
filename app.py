@@ -1301,10 +1301,11 @@ async def handle_staff(req: Request):
             guest_phone = room_to_phone.get(task.room)
 
             if guest_phone:
-                print(f"""
-            📩 MESSAGE TO GUEST ({guest_phone})
-            Has the {task.item} issue been resolved?
-            """)
+              twilio_client.messages.create(
+                    body=f"Has the {task.item} issue been resolved?",
+                    from_=os.getenv("TWILIO_WHATSAPP_NUMBER"),
+                    to=guest_phone
+                )
 
             resp.message("Marked done 👍")
             return Response(str(resp), media_type="application/xml")
