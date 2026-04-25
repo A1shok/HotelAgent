@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.rest import Client
 from openai import OpenAI
+import os
 import json
 import uuid
 from datetime import datetime
@@ -12,6 +13,12 @@ from db import SessionLocal, Task
 
 client = OpenAI()
 app = FastAPI()
+
+
+twilio_client = Client(
+    os.getenv("ACCOUNT_SID"),
+    os.getenv("AUTH_TOKEN")
+)
 
 STAFF_NUMBERS = ["+9198xxxx001", "+9198xxxx002"]
 
@@ -1304,7 +1311,7 @@ async def handle_staff(req: Request):
               twilio_client.messages.create(
                     body=f"Has the {task.item} issue been resolved?",
                     from_=os.getenv("TWILIO_WHATSAPP_NUMBER"),
-                    to=guest_phone
+                    to=f"whatsapp:{guest_phone}"
                 )
 
             resp.message("Marked done 👍")
@@ -1339,6 +1346,7 @@ async def whatsapp_webhook(req: Request):
             return await handle_staff(req)
 
         room = phone[-3:]
+        phone = form.get("From").replace("whatsapp:", "")
         room_to_phone[room] = phone
 
         # TEMP CLEAN DB (remove after testing)
@@ -1435,7 +1443,7 @@ async def whatsapp_webhook(req: Request):
         all_actions = decision_to_actions(decisions)
 
         # 🔥 IGNORE HANDLING (ADD HERE)
-        if all_actions and all(a["action"] == "ignore" for a in all_actions):
+        if not all_actions or all(a["action"] == "ignore" for a in all_actions):
             return Response("", media_type="application/xml")
 
         reply = generate_response(all_actions, signal_summary)
