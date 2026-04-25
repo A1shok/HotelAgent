@@ -1256,7 +1256,7 @@ async def handle_staff(req: Request):
 
     form = await req.form()
     msg = form.get("Body")
-    phone = form.get("From")
+    phone = form.get("From").replace("whatsapp:", "")
 
     tasks = db.query(Task).filter(
         Task.assigned_to == phone,
@@ -1339,7 +1339,8 @@ async def whatsapp_webhook(req: Request):
 
         form = await req.form()
         msg = (form.get("Body") or "").strip()
-        phone = form.get("From")
+        raw_phone = form.get("From")
+        phone = raw_phone.replace("whatsapp:", "")
 
         # 🔥 STAFF FLOW (ADD HERE)
         if phone in STAFF_NUMBERS:
