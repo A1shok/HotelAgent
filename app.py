@@ -1491,3 +1491,45 @@ def get_decision(room: str):
         "signals": signals,
         "global_signals": global_sig
     }
+
+@app.post("/demo/guest")
+async def demo_guest(data: dict):
+
+    class FakeRequest:
+        async def form(self):
+            return {
+                "Body": data.get("message"),
+                "From": f"whatsapp:{data.get('phone')}"
+            }
+
+    return await whatsapp_webhook(FakeRequest())
+
+@app.post("/demo/staff")
+async def demo_staff(data: dict):
+
+    class FakeRequest:
+        async def form(self):
+            return {
+                "Body": data.get("message"),
+                "From": f"whatsapp:{data.get('phone')}"
+            }
+
+    return await handle_staff(FakeRequest())
+
+@app.get("/demo/tasks/{phone}")
+def demo_tasks(phone: str):
+    db = SessionLocal()
+
+    tasks = db.query(Task).filter(
+        Task.assigned_to == phone,
+        Task.status.in_(["assigned", "active", "completed_unverified"])
+    ).all()
+
+    return [
+        {
+            "room": t.room,
+            "item": t.item,
+            "status": t.status
+        }
+        for t in tasks
+    ]
