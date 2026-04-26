@@ -251,6 +251,8 @@ CRITICAL:
 - Split into independent intents
 - Each intent -> ONE action
 - DO NOT ignore any part of message
+- Missing any intent is considered FAILURE.
+- DO NOT return partial output.
 
 Examples:
 
